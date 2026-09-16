@@ -24,6 +24,8 @@ And the 3 are honest: those arrived through shell commands and sync, which a `Pr
 
 **Yes, if:** an agent writes a meaningful share of your notes, you have found malformed files you did not write, and you have caught yourself adding rules to `CLAUDE.md` that the agent then ignores.
 
+**Also yes, if you are starting from nothing.** The guard is the enforcement layer of a complete system, and the system ships with it: [`METHOD.md`](METHOD.md) is the folder structure, the filing rules and the daily loop, and `/scriptorium:init` will build the whole thing in an empty directory. You do not need an existing vault or an existing convention.
+
 **Probably not, if:** you write your notes yourself and use AI to search or summarise them. Nothing here will fire. Your notes are fine.
 
 **Not what this is:** a security tool. It assumes a cooperative agent that is trying to help and getting the format wrong. It will not stop a destructive command, and it is not a defence against anything adversarial.
@@ -121,6 +123,7 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this.
 | File | For | Contents |
 |---|---|---|
 | [`METHOD.md`](METHOD.md) | humans | **The system itself** — folder structure, projects vs areas, the capture loop, people, review cadence, your first month |
+| [`CHANNELS.md`](CHANNELS.md) | humans | Optional: reaching your vault from Telegram, Discord or iMessage |
 | [`LAWS.md`](LAWS.md) | both | The full rule set: the mechanism each law prevents, and the config key that parameterizes it |
 | [`AUTHORSHIP.md`](AUTHORSHIP.md) | both | Once an agent writes most of your vault, that prose stops being evidence of how *you* think. Protected surfaces, provenance, truth hierarchy |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | humans | Where a write is stopped, and which directory owns a change |

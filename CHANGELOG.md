@@ -4,6 +4,16 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-17
+
+### Added
+- `METHOD.md` — the system the conventions belong to: folder taxonomy, projects vs areas by completion criterion, the capture loop, the people system, review cadence, first month.
+- `CHANNELS.md` — reaching a vault from Telegram, Discord or iMessage, with the concurrency model and the permission trade-off stated plainly.
+- `/scriptorium:init` scaffolds a structure for an empty vault, and deliberately does not impose one on an existing vault.
+
+### Changed
+- `leak-scan` exemptions are now per-pattern. The blanket kind is dangerous: exempting a file to allow an intentional folder listing would also disable the name checks, which are the ones that catch real leaks.
+
 ## [0.2.0] — 2026-09-17
 
 ### Fixed
