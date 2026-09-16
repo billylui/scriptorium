@@ -37,6 +37,22 @@ For some invariants the difference is cosmetic — a wrapped paragraph reflows f
 
 The lint pass is the backstop. The hook is the mechanism.
 
+**This is not a rivalry with vault-memory projects.** They give an agent somewhere durable to think; this refuses the malformed writes that accumulate in whatever it thinks into. If you already run one, this guards the vault it gave you.
+
+## Verify it is actually running
+
+**Do this after installing, and again after changing the config.** An inert guard and a working guard look identical — nothing fires either way — so the only way to know is to make it say no.
+
+Ask your agent to write a file the guard should refuse: a stray markdown file at your vault root, assuming that basename is not in `root_allowlist`.
+
+```
+Write "test" to <your-vault>/probe.md
+```
+
+**Expected: refused, with a reason naming the root-allowlist rule.** If it succeeds, the guard is not running — check that the plugin is installed, that `.scriptorium.json` is at your vault root, and that `jq` is on your `PATH`.
+
+[`SECURITY.md`](SECURITY.md) documents what the guard **cannot** protect against, which is a longer list than the one above and matters more.
+
 ## Install
 
 ```
@@ -50,11 +66,17 @@ Then create `.scriptorium.json` at your vault root — copy `.scriptorium.exampl
 
 ## Documentation
 
-| File | Contents |
-|---|---|
-| [`LAWS.md`](LAWS.md) | The complete rule set: the mechanism each law prevents, and the config key that parameterizes it |
-| [`AUTHORSHIP.md`](AUTHORSHIP.md) | Protected surfaces, provenance, and the truth hierarchy — the laws that govern *reading* a vault an agent wrote |
-| [`AGENTS.md`](AGENTS.md) | Cross-harness entry point |
+| File | For | Contents |
+|---|---|---|
+| [`LAWS.md`](LAWS.md) | both | The complete rule set: the mechanism each law prevents, and the config key that parameterizes it |
+| [`AUTHORSHIP.md`](AUTHORSHIP.md) | both | Protected surfaces, provenance, and the truth hierarchy — the laws that govern *reading* a vault an agent wrote |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | humans | Where a write is stopped, and which directory owns a change. Two diagrams |
+| [`SETUP.md`](SETUP.md) | agents | Executable install steps, with the four that no agent can do marked **HUMAN** |
+| [`AGENTS.md`](AGENTS.md) | agents | Cross-harness entry point |
+
+**Installing with an agent.** `SETUP.md` is written to be executed rather than read. Paste this into Claude Code or Codex CLI:
+
+> Read `SETUP.md` from this repo and set it up on my machine. Stop at every step marked **HUMAN** and tell me what to do.
 
 ## Portability
 
