@@ -1,7 +1,20 @@
 # Copy to .leakterms.local (gitignored) and list anything that must never be
-# published: your name, vault folder names, project codenames, people you write
-# about. One term per line, case-insensitive, matched on word boundaries.
+# published. One term per line, case-insensitive, matched on word boundaries.
+#
+# Be exhaustive and err toward over-listing. The built-in patterns catch
+# structural leaks (paths, tokens, register citations); this list is the only
+# thing that catches named ones, and the terms people forget are the ones they
+# do not think of as sensitive.
+#
+# Work through these categories rather than listing from memory:
+#   your name, and every other real person you write about
+#   your vault's own folder name
+#   project, venture, employer and client names
+#   private life-domain folders — health, family, spiritual practice, journals,
+#     identity work, finance, sport, anything you would not show a stranger
+#   any `type:` value naming a private practice
+#   product or accelerator names used as examples
 #
 # Your-Name
-# Your-Vault-Folder
+# Your-Vault
 # ProjectCodename
