@@ -1,7 +1,7 @@
 {
   "name": "scriptorium",
   "displayName": "Scriptorium",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fail-closed guardrails for agent-written Obsidian vaults.",
   "license": "MIT",
   "keywords": [
@@ -12,22 +12,6 @@
     "knowledge-base",
     "agent-safety"
   ],
-  "hooks": "./hooks/hooks.json",
-  "skills": "./skills/",
-  "userConfig": {
-    "vault_path": {
-      "type": "string",
-      "title": "Vault path",
-      "description": "Absolute path to the Obsidian vault this guards.",
-      "required": true
-    },
-    "config_file": {
-      "type": "string",
-      "title": "Vault config file",
-      "description": "Path, relative to the vault, of the local settings file.",
-      "default": ".scriptorium.json"
-    }
-  },
   "author": {
     "name": "billylui",
     "url": "https://github.com/billylui"
