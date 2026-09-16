@@ -18,7 +18,7 @@ Nine further laws are specified in [`LAWS.md`](LAWS.md) and held by the agent ra
 ## Install
 
 ```
-/plugin marketplace add <owner>/scriptorium
+/plugin marketplace add billylui/scriptorium
 /plugin install scriptorium@scriptorium
 ```
 
@@ -39,7 +39,7 @@ Start with the checks you want and switch the rest off. A check that fires const
 Ask your agent to write a stray markdown file at your vault root, assuming that basename is not in `root_allowlist`:
 
 ```
-Write "test" to <your-vault>/probe.md
+/scriptorium:verify
 ```
 
 **Expected: refused, with a reason naming the root-allowlist rule.** If it succeeds, the guard is not running — check that the plugin is installed, that `.scriptorium.json` is at your vault root, and that `jq` is on your `PATH`.
@@ -57,6 +57,24 @@ The rule was not unclear and the agent was not careless. The problem is structur
 ### Prevention, not detection
 
 Other tools validate *after* the write and repair the damage. Scriptorium refuses it.
+
+```mermaid
+flowchart LR
+    subgraph after ["Validate after the write"]
+        direction LR
+        A1["agent writes"] --> B1[("vault")] --> C1["validator"] --> D1["warn / repair"]
+        D1 -.->|"phantom note<br/>already created"| B1
+    end
+    subgraph before ["Refuse before the write — this project"]
+        direction LR
+        A2["agent writes"] --> B2{{"guard"}}
+        B2 -->|"clean"| C2[("vault")]
+        B2 -->|"malformed"| D2["refused<br/>agent told why"]
+    end
+    style D2 fill:#7f1d1d,stroke:#dc2626,color:#fff
+    style C2 fill:#14532d,stroke:#16a34a,color:#fff
+    style B1 fill:#3f2d1e,stroke:#d97706,color:#fff
+```
 
 For some invariants the difference is cosmetic — a wrapped paragraph reflows fine either way. For others it is not: a multi-wikilink YAML string **creates a ghost node the instant it is written**, and the note it spawns carries no record of which file produced it. Repair means reconciling stubs against every link that could have made them. Refusal means the stub never exists.
 

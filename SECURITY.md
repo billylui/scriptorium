@@ -50,13 +50,13 @@ The hard-wrap check infers intent from line geometry: a line is flagged when it 
 
 Do this after install, and again after changing the config. It takes ten seconds.
 
-Ask your agent to write a file the guard should refuse — a stray markdown file at your vault root, assuming that basename is not in `root_allowlist`:
+Run this in your vault:
 
 ```
-Write "test" to <your-vault>/probe.md
+/scriptorium:verify
 ```
 
-**Expected: the write is refused, with a reason naming the root-allowlist rule.**
+It attempts a write that should be refused and reports the result. **Expected: refused, with a reason naming the root-allowlist rule.**
 
 If it succeeds, the guard is not running. Check that the plugin is installed, that `.scriptorium.json` sits at your vault root, and that `jq` is on your `PATH`. Delete `probe.md` if it was created.
 
