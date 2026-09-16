@@ -2,57 +2,39 @@
 
 **Fail-closed guardrails for agent-written Obsidian vaults.**
 
-A `PreToolUse` hook that refuses malformed writes to a markdown vault **before they reach disk**, plus the laws it enforces. For people whose notes are largely written by an AI agent.
+Your agent writes notes faster than you read them. A fraction come out quietly malformed — not broken enough to error, just wrong enough to corrupt links, render badly, or go missing from search. You find out weeks later.
 
-## What it refuses
+## The number this project exists for
 
-| Check | What goes wrong without it |
+One vault, roughly 2,000 notes, largely written by Claude Code. The owner noticed that prose was being hard-wrapped at 80 columns — invisible on GitHub, but Obsidian renders every single newline as a visible break, so paragraphs were splitting mid-sentence throughout the vault.
+
+| | Files needing repair |
 |---|---|
-| **Stray root markdown** | Files accumulate at the vault root as broken-link debris |
-| **Multi-wikilink YAML** | `related: "[[A]], [[B]]"` parses as *one* link target and spawns a ghost note at your vault root |
-| **Missing folder landing** | `[[Folder]]` resolves only to `Folder.md` — without it, clicking the link silently creates an empty stub |
-| **Hard-wrapped prose** | An 80-column wrap is invisible on GitHub and renders as a mid-sentence `<br>` in Obsidian |
+| The backfill that found the problem | **857** |
+| The next day, with the rule written at the top of the agent's instruction file | **123** |
+| The following month, with the same rule enforced as a hook | **3** |
 
-Nine further laws are specified in [`LAWS.md`](LAWS.md) and held by the agent rather than the hook — they are the specification for the checks that should replace them.
+The rule did not change between rows two and three. **Only its enforcement did.**
 
-## Install
+That middle row is the whole argument. The rule was clear, prominent, and re-read by the agent every session — and it was violated **27 minutes** after being written, then 123 more times the next day.
 
-```
-/plugin marketplace add billylui/scriptorium
-/plugin install scriptorium@scriptorium
-```
+And the 3 are honest: those arrived through shell commands and sync, which a `PreToolUse` hook cannot see. See [Limitations](#limitations).
 
-Then copy [`.scriptorium.example.json`](.scriptorium.example.json) to `.scriptorium.json` at your vault root and edit it.
+## Is this for you?
 
-**The vault root is wherever that file lives** — there is no path to configure and no environment variable to export. Outside a directory containing one, the hook does nothing, so installing it globally leaves every other directory untouched.
+**Yes, if:** an agent writes a meaningful share of your notes, you have found malformed files you did not write, and you have caught yourself adding rules to `CLAUDE.md` that the agent then ignores.
 
-Start with the checks you want and switch the rest off. A check that fires constantly on a vault that does not follow that convention will get the whole plugin uninstalled.
+**Probably not, if:** you write your notes yourself and use AI to search or summarise them. Nothing here will fire. Your notes are fine.
 
-**Installing with an agent:** [`SETUP.md`](SETUP.md) is written to be executed rather than read. Paste this into Claude Code or Codex CLI:
+**Not what this is:** a security tool. It assumes a cooperative agent that is trying to help and getting the format wrong. It will not stop a destructive command, and it is not a defence against anything adversarial.
 
-> Read `SETUP.md` from this repo and set it up on my machine. Stop at every step marked **HUMAN** and tell me what to do.
+## Why an instruction is not enough
 
-## Verify it is running
+An instruction is a suggestion with good intentions. It competes for attention with everything else in the context window, and an agent writing hundreds of files will eventually violate any rule it is merely *told*.
 
-**Do this after installing, and again after changing the config.** An inert guard and a working guard look identical — nothing fires either way — so the only way to know is to make it say no.
+Markdown corruption is a bad match for that, because it is **quiet**. Nothing errors. Nothing crashes. A malformed note looks fine in the editor and wrong in the renderer, or looks fine in both and simply never comes back from a search. The gap between the mistake and the discovery is measured in weeks.
 
-Ask your agent to write a stray markdown file at your vault root, assuming that basename is not in `root_allowlist`:
-
-```
-/scriptorium:verify
-```
-
-**Expected: refused, with a reason naming the root-allowlist rule.** If it succeeds, the guard is not running — check that the plugin is installed, that `.scriptorium.json` is at your vault root, and that `jq` is on your `PATH`.
-
----
-
-## Why a hook and not an instruction
-
-A rule was added to a vault's instruction file: *never hard-wrap prose, because Obsidian renders a single newline as a visible line break mid-sentence.* It was written clearly, at the top of the file, in a section the agent reads every session.
-
-**It was violated 27 minutes later.** The next day, over a hundred files needed repairing.
-
-The rule was not unclear and the agent was not careless. The problem is structural: **an instruction is a suggestion with good intentions.** An agent writing hundreds of files will eventually violate any rule it is merely *told*, and markdown corruption is quiet — nothing errors, nothing crashes, and you find out weeks later when a link resolves to a file you never created.
+A hook does not compete for attention. It runs on every write and returns a decision.
 
 ### Prevention, not detection
 
@@ -63,7 +45,7 @@ flowchart LR
     subgraph after ["Validate after the write"]
         direction LR
         A1["agent writes"] --> B1[("vault")] --> C1["validator"] --> D1["warn / repair"]
-        D1 -.->|"phantom note<br/>already created"| B1
+        D1 -.->|"phantom entry<br/>already in the graph"| B1
     end
     subgraph before ["Refuse before the write — this project"]
         direction LR
@@ -76,30 +58,72 @@ flowchart LR
     style B1 fill:#3f2d1e,stroke:#d97706,color:#fff
 ```
 
-For some invariants the difference is cosmetic — a wrapped paragraph reflows fine either way. For others it is not: a multi-wikilink YAML string **creates a ghost node the instant it is written**, and the note it spawns carries no record of which file produced it. Repair means reconciling stubs against every link that could have made them. Refusal means the stub never exists.
+For a hard-wrapped paragraph the difference is small — reflowing afterwards works. For others it is not, and the agent is also told *why* it was refused, so it corrects instead of repeating the mistake.
 
-The lint pass is the backstop. The hook is the mechanism.
+## What it refuses
 
-**This is not a rivalry with vault-memory projects.** They give an agent somewhere durable to think; this refuses the malformed writes that accumulate in whatever it thinks into. If you already run one, this guards the vault it gave you.
+Ordered by how much trouble each one actually causes. Every check is individually switchable.
+
+| Check | Default | What goes wrong without it |
+|---|---|---|
+| **Hard-wrapped prose** | on | Obsidian renders a single newline as a visible break. An 80-column wrap is invisible on GitHub and splits paragraphs mid-sentence here. This is the one with the numbers above |
+| **Multi-wikilink YAML** | on | `related: "[[A]], [[B]]"` parses as *one* link target. A phantom entry named after the whole string appears in your graph, and becomes a real empty file the moment anyone clicks it |
+| **Stray root markdown** | on | Agents scatter summary files at the vault root. Individually harmless, cumulatively the reason nobody can find anything |
+| **Missing folder landing** | **off** | `[[Folder]]` resolves only to `Folder.md`, never `Folder/index.md`. Enforces a convention Obsidian has no native concept of, so it ships off — turn it on once it matches your structure |
+
+Nine further laws are specified in [`LAWS.md`](LAWS.md) and held by the agent rather than the hook. They are the specification for the checks that should replace them.
+
+## Install
+
+```
+/plugin marketplace add billylui/scriptorium
+```
+```
+/plugin install scriptorium@scriptorium
+```
+```
+/plugin list
+```
+
+You want `scriptorium@scriptorium` showing **enabled**. A plugin that fails to load enforces nothing, and looks exactly like one that is working.
+
+Then, with Claude Code open in your vault:
+
+```
+/scriptorium:init
+```
+
+It reads your vault, proposes values, asks what it cannot infer, writes `.scriptorium.json` at your vault root, and **makes the guard refuse a write in front of you.**
+
+Full walkthrough, including setting up someone else's machine: [`SETUP.md`](SETUP.md).
+
+**The vault root is wherever `.scriptorium.json` lives.** No path setting, no environment variable. Outside a directory containing one the hook does nothing, so a global install leaves every other directory untouched.
+
+## Verify
+
+```
+/scriptorium:verify
+```
+
+Run it after any config change, or whenever you are about to rely on this. **An inert guard and a working guard are indistinguishable until one of them says no.**
 
 ## Limitations
 
-Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
+Read [`SECURITY.md`](SECURITY.md) before relying on this.
 
-- **The hook fires on `Write` and `Edit`.** An agent with shell access bypasses every check with a heredoc or `sed -i` — and bulk shell edits are exactly when a convention gets violated at scale.
-- **Nothing else is covered.** Sync services, mobile apps, your editor, other agents, `git checkout`.
+- **The hook sees `Write` and `Edit` only.** An agent with shell access bypasses every check with a heredoc or `sed -i` — and bulk shell edits are exactly when a convention gets violated at scale. This is how 3 of the files above got through.
+- **Nothing else is covered:** sync services, mobile apps, your editor, other agents, `git checkout`.
 - **Shape, not truth.** A perfectly formatted note that is completely wrong passes.
-- **It fails open when it cannot run** — no `jq`, no config file, check disabled. Absence of refusals is not evidence of coverage.
-- **Not a security boundary.** It assumes a cooperative agent and a trusted operator.
+- **It fails open when it cannot run** — no `jq`, no config, check disabled. Absence of refusals is not evidence of coverage.
 
 ## Documentation
 
 | File | For | Contents |
 |---|---|---|
-| [`LAWS.md`](LAWS.md) | both | The complete rule set: the mechanism each law prevents, and the config key that parameterizes it |
-| [`AUTHORSHIP.md`](AUTHORSHIP.md) | both | Protected surfaces, provenance, and the truth hierarchy — the laws that govern *reading* a vault an agent wrote |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | humans | Where a write is stopped, and which directory owns a change. Diagrams |
-| [`SETUP.md`](SETUP.md) | agents | Executable install steps, with the four no agent can do marked **HUMAN** |
+| [`LAWS.md`](LAWS.md) | both | The full rule set: the mechanism each law prevents, and the config key that parameterizes it |
+| [`AUTHORSHIP.md`](AUTHORSHIP.md) | both | Once an agent writes most of your vault, that prose stops being evidence of how *you* think. Protected surfaces, provenance, truth hierarchy |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | humans | Where a write is stopped, and which directory owns a change |
+| [`SETUP.md`](SETUP.md) | agents | Executable install, with the steps no agent can do marked **HUMAN** |
 | [`SECURITY.md`](SECURITY.md) | both | What the guard cannot protect against |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | both | The leak-scan rule, and "demonstrate the red" |
 
@@ -110,15 +134,15 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this. The short version:
 | Laws, skills, templates | Claude Code, Codex CLI, and other [Agent Skills](https://agentskills.io) hosts |
 | The `PreToolUse` hook | Claude Code — hook contracts are per-harness, inert elsewhere |
 
-A Codex user gets the laws and the skills and does not get the refusal, which is exactly the gap this project argues matters.
+**This is not a rivalry with vault-memory projects.** They give an agent somewhere durable to think; this refuses the malformed writes that accumulate in whatever it thinks into. If you run one, this guards the vault it gave you.
 
 ## Status and support
 
-**This is a published artifact of a working system, not a supported product.** It runs daily against a real vault, which is why the rules exist — every one of them was written after something broke.
+**A published artifact of a working system, not a supported product.** It runs daily against the vault the numbers above came from, which is why the rules exist — every one was written after something broke.
 
-Issues are welcome as signal and may sit. PRs may sit longer. If you need a guarantee, fork it — that is a genuine suggestion, not a brush-off.
+Issues are welcome as signal and may sit. PRs may sit longer. If you need a guarantee, fork it — a genuine suggestion, not a brush-off.
 
-The most useful thing anyone can send is a case where the guard passes a write it should have refused.
+The most useful thing anyone can send is a case where the guard passed a write it should have refused.
 
 ## License
 

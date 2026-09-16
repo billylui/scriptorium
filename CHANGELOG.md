@@ -4,6 +4,21 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-09-17
+
+### Fixed
+- **The plugin did not load.** `plugin.json` declared `hooks` and `skills`, but both are auto-discovered at their standard paths; declaring them raised "Duplicate hooks file detected" and the whole plugin failed. The guard ran for nobody. Found by installing it for the first time.
+- Setup was not followable: the install command contained a placeholder, and the reader was told to copy files from a versioned cache path that changes on every update.
+- Corrected an overstated claim. A comma-joined wikilink does not immediately create a file — it puts a phantom entry in the graph, which becomes a file when clicked. A project about correctness should not overstate its own mechanism.
+
+### Added
+- `/scriptorium:init` and `/scriptorium:verify`.
+- README now leads with the measured before/after, and carries a diagram.
+
+### Changed
+- `folder_landing` now defaults **off** — it enforces a convention Obsidian has no native concept of.
+- Removed `userConfig`; it demanded a `vault_path` the design does not use.
+
 ## [0.1.0] — 2026-09-16
 
 First release.

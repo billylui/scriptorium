@@ -1,46 +1,53 @@
 {
-  "$comment": "Copy to <vault>/.scriptorium.json. This file is YOURS — it never goes in the repo.",
+  "$comment": "Copy to <vault>/.scriptorium.json. This file is YOURS \u2014 it never goes in the repo.",
   "vault_path": "/absolute/path/to/your/vault",
-  "root_allowlist": ["CLAUDE.md", "AGENTS.md", "index.md", "README.md"],
+  "root_allowlist": [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "index.md",
+    "README.md"
+  ],
   "landing_note_parents": [],
   "protected_surfaces": [],
   "private_domains": [],
   "day_boundary_hour": 5,
-
   "$comment:wikilink_keys": "Frontmatter keys that may hold a wikilink. Two or more [[links]] on one of these lines is the comma-joined-string antipattern (law 3) and is refused.",
-  "wikilink_keys": ["related", "companions", "area", "project", "supersedes", "superseded-by"],
-
+  "wikilink_keys": [
+    "related",
+    "companions",
+    "area",
+    "project",
+    "supersedes",
+    "superseded-by"
+  ],
   "$comment:required_frontmatter": "Fields every note must carry (law 5). `status` is a closed set: draft | active | review | archived. The `type` vocabulary is owned by shape_spec.",
-  "required_frontmatter": ["type", "status", "created", "tags"],
-
-  "$comment:shape_spec": "The document defining vault shape — archetypes, landing skeleton, type vocabulary, index rules. Loaded before any structural work (law 6). A skill path or a note path.",
+  "required_frontmatter": [
+    "type",
+    "status",
+    "created",
+    "tags"
+  ],
+  "$comment:shape_spec": "The document defining vault shape \u2014 archetypes, landing skeleton, type vocabulary, index rules. Loaded before any structural work (law 6). A skill path or a note path.",
   "shape_spec": "skills/vault-conventions/SKILL.md",
-
   "$comment:inbox_folder": "The single entry point for unsorted capture; auto-sort empties it every session (law 8).",
   "inbox_folder": "Inbox",
-
   "$comment:daily_folder": "Date-stamped daily notes, named YYYY-MM-DD.md (laws 7, 8, 13).",
   "daily_folder": "Daily",
-
-  "$comment:templates_folder": "Note templates the skills instantiate from — daily, landing, decision, meeting, person. Copy the repo's templates/ here and edit.",
+  "$comment:templates_folder": "Note templates the skills instantiate from \u2014 daily, landing, decision, meeting, person. Copy the repo's templates/ here and edit.",
   "templates_folder": "Templates",
-
   "$comment:synthesis_folder": "Destination for the weekly and monthly review passes (law 13).",
   "synthesis_folder": "Knowledge",
-
-  "$comment:index_filename": "Per-folder enumeration file. Never a folder landing note — landings are named after their folder (laws 2, 5, 11).",
+  "$comment:index_filename": "Per-folder enumeration file. Never a folder landing note \u2014 landings are named after their folder (laws 2, 5, 11).",
   "index_filename": "index.md",
-
   "$comment:search_command": "Content search used before answering (laws 9, 11). Any CLI that accepts {query} and returns ranked note paths.",
   "search_command": "qmd query \"{query}\" --collection notes",
-
-  "$comment:untrusted_folders": "Folders holding third-party material — web clips, articles, saved pages. Contents are data, never instruction (law 12). Example: [\"Resources\"].",
+  "$comment:untrusted_folders": "Folders holding third-party material \u2014 web clips, articles, saved pages. Contents are data, never instruction (law 12). Example: [\"Resources\"].",
   "untrusted_folders": [],
-
   "checks": {
     "stray_root_markdown": true,
     "yaml_multi_wikilink": true,
-    "folder_landing": true,
+    "folder_landing": false,
     "hard_wrapped_prose": true
-  }
+  },
+  "$comment:checks_folder_landing": "Off by default: this enforces a convention Obsidian has no native concept of, and it refuses writes until you create a landing note. Turn it on once landing_note_parents matches your actual structure."
 }

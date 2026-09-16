@@ -39,7 +39,7 @@ flowchart LR
     style C2 fill:#14532d,stroke:#16a34a,color:#fff
 ```
 
-For a hard-wrapped paragraph the two are nearly equivalent — reflowing afterwards is fine. For a comma-joined wikilink in YAML they are not: that string **creates a node in the graph the instant it lands**, and the note it spawns at the vault root has no record of which file produced it. Repair means reconciling stubs against every link that could have made them. Refusal means the stub never exists.
+For a hard-wrapped paragraph the two are nearly equivalent — reflowing afterwards is fine. For a comma-joined wikilink in YAML they are not: that string **puts a phantom entry in the graph the instant it lands**, named after the whole string. To be precise, no file is created at that moment — which is exactly why it goes unnoticed — and one appears at the vault root as soon as anyone clicks it, carrying no record of which note produced it. Refusal means it never appears.
 
 ### Fail-closed on detection, fail-open on failure
 
