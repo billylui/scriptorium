@@ -1,48 +1,65 @@
 ---
-description: Set up Scriptorium in a vault — writes .scriptorium.json, copies templates, verifies the guard fires
+description: Set up a vault from scratch or adopt an existing one — structure, config, templates, and a live proof the guard works
 ---
 
-Set up Scriptorium in the user's vault. Work through this in order and do not skip the verification at the end.
+Set up Scriptorium in the user's vault. Read `METHOD.md` in the plugin root first if you have not — you are setting up that system, and the user may ask why a folder exists.
 
-## 1. Find the vault
+Work in order. Do not skip step 6.
 
-If the current working directory looks like a notes vault (contains `.obsidian/`, or many `.md` files in folders), use it. Otherwise ask the user for the absolute path. Confirm the path back to them before writing anything.
+## 1. Find or create the vault
 
-If `.scriptorium.json` already exists there, say so and ask whether to reconfigure or stop. **Never overwrite it silently** — it is the user's own config and may encode decisions you cannot see.
+If the working directory looks like a vault (has `.obsidian/`, or markdown in folders), use it. Otherwise ask for the path, or offer to create one. Confirm the path back before writing anything.
 
-## 2. Look before you ask
+If `.scriptorium.json` already exists, say so and ask whether to reconfigure. **Never overwrite it silently** — it encodes decisions you cannot see.
 
-List the vault's top-level folders and count the `.md` files. Use what you find to propose values rather than asking cold — a user who just installed this does not yet know what `landing_note_parents` means, and an empty vault has different answers from one with three years of notes.
+## 2. Decide: scaffold, or adopt?
 
-## 3. Ask only what you cannot infer
+**Ask which situation applies.** The whole setup differs.
 
-Ask these as plain questions, one message, with your proposed answer for each:
+**(a) Empty or near-empty vault — scaffold it.** Create the structure from `METHOD.md`:
 
-- **Which folders hold subject folders that should each have a landing note?** (e.g. a Projects folder, an Areas folder.) If they have no such structure, leave this empty and the check stays off. Explain that wrong values here cause refusals they will not expect.
-- **Which files or sections do they write themselves, rather than the agent?** A daily-note reflection heading, a journal folder, first-person notes about people. Explain that leaving this empty silently disables both the do-not-overwrite rule and the provenance measurement.
-- **Which checks do they want on?** Default all four on for a new vault. For an existing vault, warn that `hard_wrapped_prose` will refuse writes to any note that follows a different convention, and offer to start with it off.
+```
+00-Inbox  01-Daily  02-People  03-Projects  04-Areas
+05-Knowledge  06-Resources  07-Archive  08-Templates  09-Attachments
+```
 
-## 4. Write the config
+Also create `index.md` at the root. Explain as you go, briefly — especially that `00-Inbox/` is the only entry point, and that numeric prefixes make the sidebar sort into workflow order. Do not lecture; two sentences each.
 
-Copy `${CLAUDE_PLUGIN_ROOT}/.scriptorium.example.json` to `<vault>/.scriptorium.json` and fill in the answers. Keep the `$comment` lines — they are the only documentation the user will have to hand.
+**(b) Existing vault with its own structure — adopt it.** Do **not** impose these folders. List what they have, map their folders onto the config keys, and leave the shape alone. Someone with three years of notes has a working system; your job is to guard it, not restructure it.
 
-Show them the finished file.
+## 3. Look before asking
 
-## 5. Copy the templates (offer, do not assume)
+List top-level folders and count `.md` files. Propose values from what you find. A user who just installed this does not yet know what `landing_note_parents` means, and asking cold produces guesses.
 
-Ask whether they want the starter templates. If yes, copy `${CLAUDE_PLUGIN_ROOT}/templates/` into the folder named by `templates_folder`. If that folder already has files with the same names, list the collisions and ask before overwriting.
+## 4. Ask only what you cannot infer
 
-## 6. Prove the guard actually fires
+One message, plain questions, each with your proposed answer:
 
-**Do not skip this and do not simulate it.** An inert guard and a working guard are indistinguishable until one of them says no.
+- **Which folders hold subject folders needing a landing note?** Usually the Projects and Areas folders. **Recommend leaving `folder_landing` off for now** — it refuses writes into any folder lacking a landing note, which is disruptive before the structure settles. `METHOD.md` says turn it on at about a month in.
+- **Which files or sections do you write yourself, rather than the agent?** A daily-note reflection heading, a journal folder, first-person notes about people. Explain that leaving this empty **silently disables** both the do-not-overwrite rule and the provenance measurement.
+- **Which checks do you want on?** For a new vault, all except `folder_landing`. For an existing vault, warn that `hard_wrapped_prose` will refuse writes to notes following a different convention — offer to start it off and turn it on after they have seen what it catches.
 
-Pick a basename that is *not* in `root_allowlist` and try to write it at the vault root with the Write tool — for example `<vault>/scriptorium-probe.md` containing `test`.
+## 5. Write the config and templates
 
-- **If the write is refused:** the guard is live. Quote the refusal reason back to the user so they see what a refusal looks like, then confirm no file was created.
-- **If the write succeeds:** the guard is NOT running. Delete the file and tell the user plainly. Then check, in order: `claude plugin list` shows `scriptorium@scriptorium` as `enabled`; `.scriptorium.json` is at the vault root and is valid JSON (`jq . .scriptorium.json`); `jq` is on PATH. Report which one failed rather than guessing.
+Copy `${CLAUDE_PLUGIN_ROOT}/.scriptorium.example.json` to `<vault>/.scriptorium.json` and fill in the answers. Keep the `$comment` lines — they are the only documentation the user will have to hand. Show them the result.
 
-## 7. Tell them what changed
+Copy `${CLAUDE_PLUGIN_ROOT}/templates/` into the folder named by `templates_folder`. If files collide, list them and ask.
 
-In three or four lines: which checks are on, where the config lives, that editing `.scriptorium.json` changes behaviour with no reinstall, and that `/scriptorium:verify` re-runs step 6 any time.
+## 6. Prove the guard fires — do not skip, do not simulate
 
-Mention that `SECURITY.md` in the repo lists what the guard cannot catch — above all that writes made through shell commands bypass it entirely.
+An inert guard and a working guard are indistinguishable until one says no.
+
+Pick a basename **not** in `root_allowlist` and try to write it at the vault root with the Write tool — for example `scriptorium-probe.md` containing `test`.
+
+- **Refused:** quote the refusal back so they see what one looks like. Confirm no file was created.
+- **Succeeded:** the guard is NOT running. Delete the file and say so plainly. Diagnose in order and report which failed: `claude plugin list` shows `scriptorium@scriptorium` **enabled**; `jq . .scriptorium.json` parses; `command -v jq python3` both resolve; the check is not off in `checks`.
+
+## 7. First note, so the vault is not empty
+
+Create today's daily note from the template. If they scaffolded, offer to create one Area for something ongoing in their life, with its landing note — a worked example beats a description.
+
+## 8. Hand over
+
+Four or five lines: which checks are on, that `.scriptorium.json` changes behaviour with no reinstall, that `/scriptorium:verify` re-runs the proof, and where `METHOD.md` is for how to actually run the thing.
+
+Say plainly that writes made through shell commands bypass the guard entirely — that is the largest gap and they should know it on day one, not discover it. Point at `SECURITY.md`.

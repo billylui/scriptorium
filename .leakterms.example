@@ -23,4 +23,8 @@
 # Use sparingly — each one is a file nobody is checking any more.
 # The canonical case is a copyright line, which must name a real person.
 #
-# !LICENSE
+# !LICENSE                     <- exempts the whole file
+# !METHOD.md:numbered-dir      <- exempts ONE pattern in that file
+#
+# Prefer the second form. A blanket exemption also switches off the name
+# checks, which are the ones that catch real leaks.

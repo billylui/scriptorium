@@ -62,7 +62,14 @@ def terms():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        (allow if line.startswith("!") else deny).append(line.lstrip("!").strip())
+        if line.startswith("!"):
+            # "!path" exempts a file entirely; "!path:label" exempts one pattern
+            # in that file. Prefer the second — a blanket exemption also switches
+            # off the name checks, which are the ones that catch real leaks.
+            body = line.lstrip("!").strip()
+            allow.append(tuple(body.split(":", 1)) if ":" in body else (body, None))
+        else:
+            deny.append(line)
     return deny, allow
 
 
@@ -85,9 +92,13 @@ def main():
     if custom:
         pats["private-term"] = r"(?i)\b(?:" + "|".join(re.escape(t) for t in custom) + r")\b"
 
+    def exempted(rel, label):
+        return any(fnmatch(rel, g) and (lab is None or lab == label)
+                   for g, lab in exempt)
+
     hits = []
     scanned = [f for f in files()
-               if not any(fnmatch(str(f.relative_to(ROOT)), g) for g in exempt)]
+               if not exempted(str(f.relative_to(ROOT)), None)]
     for f in scanned:
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
@@ -95,6 +106,8 @@ def main():
             continue
         for n, line in enumerate(text.split("\n"), 1):
             for label, pat in pats.items():
+                if exempted(str(f.relative_to(ROOT)), label):
+                    continue
                 for m in {mm.group(0) for mm in re.finditer(pat, line)}:
                     hits.append((f.relative_to(ROOT), n, label, m[:48]))
 

@@ -120,6 +120,7 @@ Read [`SECURITY.md`](SECURITY.md) before relying on this.
 
 | File | For | Contents |
 |---|---|---|
+| [`METHOD.md`](METHOD.md) | humans | **The system itself** — folder structure, projects vs areas, the capture loop, people, review cadence, your first month |
 | [`LAWS.md`](LAWS.md) | both | The full rule set: the mechanism each law prevents, and the config key that parameterizes it |
 | [`AUTHORSHIP.md`](AUTHORSHIP.md) | both | Once an agent writes most of your vault, that prose stops being evidence of how *you* think. Protected surfaces, provenance, truth hierarchy |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | humans | Where a write is stopped, and which directory owns a change |
