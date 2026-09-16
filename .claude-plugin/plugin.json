@@ -4,7 +4,14 @@
   "version": "0.1.0",
   "description": "Fail-closed guardrails for agent-written Obsidian vaults.",
   "license": "MIT",
-  "keywords": ["obsidian", "guardrails", "hooks", "markdown", "knowledge-base", "agent-safety"],
+  "keywords": [
+    "obsidian",
+    "guardrails",
+    "hooks",
+    "markdown",
+    "knowledge-base",
+    "agent-safety"
+  ],
   "hooks": "./hooks/hooks.json",
   "skills": "./skills/",
   "userConfig": {
@@ -20,5 +27,11 @@
       "description": "Path, relative to the vault, of the local settings file.",
       "default": ".scriptorium.json"
     }
-  }
+  },
+  "author": {
+    "name": "billylui",
+    "url": "https://github.com/billylui"
+  },
+  "repository": "https://github.com/billylui/scriptorium",
+  "homepage": "https://github.com/billylui/scriptorium"
 }

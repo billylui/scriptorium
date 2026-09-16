@@ -25,6 +25,7 @@ never as "reviewed". Read the diff.
 Exit 1 on any hit, so it works as a pre-commit hook.
 """
 import re, subprocess, sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,15 +48,22 @@ SELF = Path(__file__).name
 
 
 def terms():
+    """Read the denylist. Lines starting with '!' are path exemptions.
+
+    An exemption exists for the narrow case where a real name is *required* to
+    be published — a copyright line being the canonical example. Keep the list
+    short: each entry is a file nobody is checking any more.
+    """
     f = ROOT / ".leakterms.local"
     if not f.exists():
-        return []
-    out = []
+        return [], []
+    deny, allow = [], []
     for line in f.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
-            out.append(line)
-    return out
+        if not line or line.startswith("#"):
+            continue
+        (allow if line.startswith("!") else deny).append(line.lstrip("!").strip())
+    return deny, allow
 
 
 def files():
@@ -72,13 +80,15 @@ def files():
 
 
 def main():
-    custom = terms()
+    custom, exempt = terms()
     pats = dict(BUILTIN)
     if custom:
         pats["private-term"] = r"(?i)\b(?:" + "|".join(re.escape(t) for t in custom) + r")\b"
 
     hits = []
-    for f in files():
+    scanned = [f for f in files()
+               if not any(fnmatch(str(f.relative_to(ROOT)), g) for g in exempt)]
+    for f in scanned:
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -90,14 +100,15 @@ def main():
 
     if not hits:
         n = len(custom)
-        print(f"leak-scan: clean ({len(files())} files, {len(BUILTIN)} built-in patterns"
+        ex = f", {len(exempt)} exempt" if exempt else ""
+        print(f"leak-scan: clean ({len(scanned)} files{ex}, {len(BUILTIN)} built-in patterns"
               + (f", {n} local term{'s' if n != 1 else ''})" if n else ", no .leakterms.local)"))
         return 0
 
     print("leak-scan: BLOCKED — personal material found\n", file=sys.stderr)
     for path, n, label, tok in hits:
         print(f"  {path}:{n}  [{label}]  {tok!r}", file=sys.stderr)
-    print(f"\n{len(hits)} hit(s). Fix them, or add a deliberate exception to .leakterms.local.", file=sys.stderr)
+    print(f"\n{len(hits)} hit(s). Fix them, or exempt a path with a '!glob' line in .leakterms.local.", file=sys.stderr)
     return 1
 
 

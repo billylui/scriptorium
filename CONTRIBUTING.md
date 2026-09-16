@@ -35,6 +35,14 @@ Keep the shape: **Rule / What breaks / Config.**
 
 Deliberate `**Label:** value` single-newline stacks are fine.
 
+## Agent-written contributions
+
+Agent-assisted PRs are welcome — this project exists because of agent-written prose, so refusing them would be strange.
+
+Two conditions. **You have read the diff and can explain every line**, including the ones you did not write; and the PR says which parts were agent-generated. A PR whose author cannot answer "why this check and not the simpler one" is a review burden transferred, not work contributed.
+
+An agent that has read `LAWS.md` will produce something close to house style. One that has not usually produces a plausible-looking check that has never refused anything — see *Demonstrate the red* above.
+
 ## Scope
 
 In scope: new checks, sharper mechanism explanations, harness portability, false-positive fixes.

@@ -18,3 +18,9 @@
 # Your-Name
 # Your-Vault
 # ProjectCodename
+#
+# Path exemptions: a line starting with ! is a glob of files to skip.
+# Use sparingly — each one is a file nobody is checking any more.
+# The canonical case is a copyright line, which must name a real person.
+#
+# !LICENSE
