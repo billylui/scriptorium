@@ -1,0 +1,7 @@
+.scriptorium.json
+*.local.json
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.leakterms.local

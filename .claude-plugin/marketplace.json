@@ -1,0 +1,11 @@
+{
+  "name": "scriptorium",
+  "owner": { "name": "scriptorium" },
+  "plugins": [
+    {
+      "name": "scriptorium",
+      "source": "./",
+      "description": "Fail-closed guardrails for agent-written Obsidian vaults."
+    }
+  ]
+}

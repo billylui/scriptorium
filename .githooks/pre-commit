@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Block any commit carrying personal material. Install with:
+#   git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/scripts/leak-scan.py"

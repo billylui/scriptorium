@@ -1,0 +1,7 @@
+# Copy to .leakterms.local (gitignored) and list anything that must never be
+# published: your name, vault folder names, project codenames, people you write
+# about. One term per line, case-insensitive, matched on word boundaries.
+#
+# Your-Name
+# Your-Vault-Folder
+# ProjectCodename

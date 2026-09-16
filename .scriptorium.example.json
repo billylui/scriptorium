@@ -1,0 +1,15 @@
+{
+  "$comment": "Copy to <vault>/.scriptorium.json. This file is YOURS — it never goes in the repo.",
+  "vault_path": "/absolute/path/to/your/vault",
+  "root_allowlist": ["CLAUDE.md", "AGENTS.md", "index.md", "README.md"],
+  "landing_note_parents": [],
+  "protected_surfaces": [],
+  "private_domains": [],
+  "day_boundary_hour": 5,
+  "checks": {
+    "stray_root_markdown": true,
+    "yaml_multi_wikilink": true,
+    "folder_landing": true,
+    "hard_wrapped_prose": true
+  }
+}
