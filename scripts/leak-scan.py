@@ -47,6 +47,9 @@ SKIP_SUFFIX = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"}
 SELF = Path(__file__).name
 
 
+DENYLIST = ".leakterms.local"
+
+
 def terms():
     """Read the denylist. Lines starting with '!' are path exemptions.
 
@@ -54,7 +57,7 @@ def terms():
     be published — a copyright line being the canonical example. Keep the list
     short: each entry is a file nobody is checking any more.
     """
-    f = ROOT / ".leakterms.local"
+    f = ROOT / DENYLIST
     if not f.exists():
         return [], []
     deny, allow = [], []
@@ -82,12 +85,36 @@ def files():
     # Never scan the denylist itself: it is a list of the very terms being
     # hunted, and it should be gitignored anyway — but if someone commits it by
     # mistake, a wall of self-matches is a useless way to find that out.
-    skip = {SELF, ".leakterms.local"}
+    skip = {SELF, DENYLIST}
     return [p for p in listed if p.is_file() and p.suffix not in SKIP_SUFFIX and p.name not in skip]
+
+
+def denylist_state(custom):
+    """Summary fragment and optional warning for the denylist.
+
+    A missing file and a file holding only comments and exemptions both mean no
+    name is being checked, and the built-in patterns never catch a name. Saying
+    "no .leakterms.local" about a file that exists hides exactly that, so the two
+    states are reported separately and both warn.
+    """
+    if not (ROOT / DENYLIST).exists():
+        return (f"no {DENYLIST}",
+                f"leak-scan: warning — no {DENYLIST}, so no names are checked. "
+                f"Built-in patterns do not catch names. Copy .leakterms.example to {DENYLIST} and list them.")
+    if not custom:
+        return (f"{DENYLIST} has no deny terms",
+                f"leak-scan: warning — {DENYLIST} exists but lists no deny terms (only comments or '!' exemptions), "
+                f"so no names are checked. Built-in patterns do not catch names.")
+    n = len(custom)
+    return f"{n} local term{'s' if n != 1 else ''}", None
 
 
 def main():
     custom, exempt = terms()
+    summary, warning = denylist_state(custom)
+    if warning:
+        # stderr, never a failure: an empty denylist is a gap to see, not a leak to block.
+        print(warning, file=sys.stderr)
     pats = dict(BUILTIN)
     if custom:
         pats["private-term"] = r"(?i)\b(?:" + "|".join(re.escape(t) for t in custom) + r")\b"
@@ -112,10 +139,8 @@ def main():
                     hits.append((f.relative_to(ROOT), n, label, m[:48]))
 
     if not hits:
-        n = len(custom)
         ex = f", {len(exempt)} exempt" if exempt else ""
-        print(f"leak-scan: clean ({len(scanned)} files{ex}, {len(BUILTIN)} built-in patterns"
-              + (f", {n} local term{'s' if n != 1 else ''})" if n else ", no .leakterms.local)"))
+        print(f"leak-scan: clean ({len(scanned)} files{ex}, {len(BUILTIN)} built-in patterns, {summary})")
         return 0
 
     print("leak-scan: BLOCKED — personal material found\n", file=sys.stderr)

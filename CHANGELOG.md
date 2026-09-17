@@ -4,6 +4,11 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-09-17
+
+### Fixed
+- **The leak scanner said `no .leakterms.local` when the file existed but listed no deny terms.** A denylist holding only comments and `!` exemptions checks no names at all, and the message made that look like a missing file rather than an empty list — so the gap went unnoticed while commits derived from material naming a real person were pushed. The summary now distinguishes a missing file, a file with no deny terms, and a file with N terms, and both no-terms states print a warning on stderr. Exit codes are unchanged: a warning never blocks a commit, and a real hit still does.
+
 ## [0.5.1] — 2026-09-17
 
 ### Fixed
