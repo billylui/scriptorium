@@ -24,7 +24,7 @@ never as "reviewed". Read the diff.
 
 Exit 1 on any hit, so it works as a pre-commit hook.
 """
-import re, subprocess, sys
+import re, subprocess, sys, unicodedata
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -48,7 +48,32 @@ SELF = Path(__file__).name
 
 
 DENYLIST = ".leakterms.local"
-ZERO_WIDTH = "​‌‍⁠﻿"
+
+
+def clean(token, whitespace=True):
+    """Trim invisible format characters (and, by default, whitespace) from both ends of a token.
+
+    Python's strip() removes whitespace but not Unicode format characters
+    (category Cf: byte-order mark, zero-width space and joiners, bidi marks,
+    soft hyphen, isolates). Left on a denylist token, one of them turns a
+    comment or blank line into a "term" that matches nothing, so the count
+    claims a name is checked when none is, or stops a real name from matching.
+    Tested by category rather than a character list, so no list can go stale
+    or be silently emptied. Characters inside a token are left alone.
+
+    whitespace=False trims only format characters. The parts of a "!glob:label"
+    exemption use it so that clean() never widens what an existing exemption
+    matches: "! README.md : private-term" keeps its trailing space and stays
+    inert, exactly as before, rather than starting to allow a file.
+    """
+    def invisible(c):
+        return (whitespace and c.isspace()) or unicodedata.category(c) == "Cf"
+    start, end = 0, len(token)
+    while start < end and invisible(token[start]):
+        start += 1
+    while end > start and invisible(token[end - 1]):
+        end -= 1
+    return token[start:end]
 
 
 def terms():
@@ -62,20 +87,20 @@ def terms():
     if not f.exists():
         return [], []
     deny, allow = [], []
-    # utf-8-sig drops a byte-order mark, and zero-width characters are stripped
-    # with the whitespace: either one left on a line turns a comment or a blank
-    # line into a "term" that matches nothing, and the count then claims a
-    # denylist that checks no names is checking one.
-    for line in f.read_text(encoding="utf-8-sig").splitlines():
-        line = line.strip().strip(ZERO_WIDTH).strip()
+    for line in f.read_text(encoding="utf-8").splitlines():
+        line = clean(line)
         if not line or line.startswith("#"):
             continue
         if line.startswith("!"):
             # "!path" exempts a file entirely; "!path:label" exempts one pattern
             # in that file. Prefer the second — a blanket exemption also switches
             # off the name checks, which are the ones that catch real leaks.
-            body = line.lstrip("!").strip()
-            allow.append(tuple(body.split(":", 1)) if ":" in body else (body, None))
+            body = clean(line.lstrip("!"))
+            if ":" in body:
+                glob, label = body.split(":", 1)
+                allow.append((clean(glob, whitespace=False), clean(label, whitespace=False)))
+            else:
+                allow.append((body, None))
         else:
             deny.append(line)
     return deny, allow
