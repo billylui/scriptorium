@@ -31,13 +31,21 @@ A listed key that is *not* on the first line and not after a leading fence is st
 
 **Why it matters.** These are the writes the check exists to stop: Obsidian parses the whole string as one link target and a ghost node appears at the vault root immediately. Content with a BOM reaches the Write and Edit tools when an agent copies text from a file saved by a Windows editor or an importer.
 
-## P2 — Check D refuses valid frontmatter as hard-wrapped prose (false refusal)
+## P2 — Check D misreads the first line: false refusals and a fail-open
 
-**Problem.** Check D's embedded Python sets `fm = bool(lines) and lines[0].strip() == "---"` (around line 150). `str.strip()` does not remove U+FEFF, so with a BOM the frontmatter is treated as prose, and a long YAML value continued on an indented line — valid YAML, a multi-line plain scalar — looks like a wrap.
+Check D's embedded Python compares stripped lines against markers, and `str.strip()` does not remove U+FEFF, so every marker test on line 0 misses when a BOM leads the content. Three sites:
 
-**Evidence.** Write of `---`, `type: log`, `summary: <text long enough to reach the wrap boundary>`, `  <indented continuation>`, `---`, body. PyYAML parses that frontmatter into `{type, summary}`. No BOM → allow; leading U+FEFF → **DENY** ("hard-wrapped prose detected").
+- `fm = bool(lines) and lines[0].strip() == "---"` (around line 150) — frontmatter not recognised, so a long YAML value continued on an indented line (valid YAML, a multi-line plain scalar) is checked as prose and looks like a wrap → **false refusal**;
+- `s.startswith("<!--")` (around line 164) — a leading multi-line HTML comment not recognised, so its continuation lines are checked as prose → **false refusal**;
+- `s.startswith("```")` (around line 167) — a leading fence not recognised, so fence state is inverted: the closing fence turns skipping **on**, and a genuinely hard-wrapped paragraph after the block is skipped → **allowed (fail-open)**.
 
-**Why it matters.** A false refusal on legitimate content pushes people to switch the check off, and then it protects nothing.
+**Evidence** (same temp vault, no BOM → with a leading U+FEFF):
+
+- Write of `---`, `type: log`, `summary: <text long enough to reach the wrap boundary>`, `  <indented continuation>`, `---`, body (PyYAML parses that frontmatter into `{type, summary}`) → allow → **DENY** ("hard-wrapped prose detected")
+- Write starting with a multi-line `<!--` comment whose continuation line is long, then a one-line paragraph → allow → **DENY**
+- Write starting with a fenced code block, then a paragraph hard-wrapped at a fixed column → DENY → **allow**
+
+**Why it matters.** A false refusal on legitimate content pushes people to switch the check off, and then it protects nothing; the fence case lets exactly the corruption check D exists to stop reach disk.
 
 ## Fix (all items together)
 
@@ -52,12 +60,12 @@ Every content check reads `$content` from there (check B's `case` and both awk s
 Before fixing, enumerate every content-position comparison and record the list in the PR, so the choke-point claim is checked rather than assumed. A starting grep — extend it if it misses anything you find by reading:
 
 ```bash
-grep -nE 'NR==1|lines\[0\]|case "\$content"|\^---|\^\[\[:space:\]\]\*|"\$content"' scripts/vault-guard.sh
+grep -nE 'NR==1|lines\[0\]|case "\$content"|\^---|\^\[\[:space:\]\]\*|"\$content"|startswith\(|\.match\(' scripts/vault-guard.sh
 ```
 
 **Files.** `scripts/vault-guard.sh`, `CHANGELOG.md`, both version fields.
 
-**Done when.** Every no-BOM/BOM pair in the probe below gives the same result as its no-BOM line (the four check B shapes are denied, the indented frontmatter is allowed); every existing refusal still fires (stray root `.md`, comma-joined links on listed and unlisted keys, a genuine hard wrap in body prose, a wrap immediately after a multi-line comment); `/scriptorium:verify` passes in a real vault.
+**Done when.** Every no-BOM/BOM pair in the probe below gives the same result as its no-BOM line (the four check B shapes and the fence-then-wrap shape are denied; the indented frontmatter and the leading comment are allowed). A fix that patches individual comparisons rather than normalising `$content` once is likely to miss one of these seven shapes — that is why the probe has all of them; every existing refusal still fires (stray root `.md`, comma-joined links on listed and unlisted keys, a genuine hard wrap in body prose, a wrap immediately after a multi-line comment); `/scriptorium:verify` passes in a real vault.
 
 ## Re-verify ground truth before acting
 
@@ -83,7 +91,7 @@ def guard(tool, content):
     return "allow" if not out else "DENY: " + json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"][:60]
 if guard("Write", "stray") != "allow" or not guard("Write", '---\ntype: log\nmentions: "[[A]], [[B]]"\n---\n').startswith("DENY"):
     sys.exit("the hook did not refuse a known-bad write: probe environment is broken, results would be meaningless")
-BOM = "﻿"
+BOM = "\ufeff"
 cases = [
     ("B frontmatter, unlisted key", "Write", '---\ntype: log\nmentions: "[[A]], [[B]]"\n---\n\nBody.\n'),
     ("B listed key on first line", "Write", 'related: "[[A]], [[B]]"\n'),
@@ -91,12 +99,16 @@ cases = [
     ("B frontmatter, listed key", "Write", '---\ntype: log\nrelated: "[[A]], [[B]]"\n---\n\nBody.\n'),
     ("D indented frontmatter", "Write", "---\ntype: log\nsummary: this frontmatter value is deliberately long enough that it reaches the wrap\n"
                                         "  boundary and continues on an indented continuation line here\n---\n\nBody on one line.\n"),
+    ("D leading comment", "Write", "<!-- This comment deliberately spans several lines so that the continuation line\n"
+                                   "is long enough to have looked like a hard wrap to a check that lost comment state\n-->\n\nOne paragraph on one line.\n"),
+    ("D leading fence, then wrap", "Write", "```\ncode here\n```\n\nThis paragraph is deliberately wrapped at a fixed column so the guard should refuse\n"
+                                            "it because the break is explained by a wrap boundary and not by any intent at all.\n"),
 ]
 for label, tool, text in cases:
     print(f"{label:30} no BOM: {guard(tool, text):62} BOM: {guard(tool, BOM + text)}")
 PY
 ```
 
-Expected on `841ed3d`: the probe does not exit early; the first three lines are `DENY` without a BOM and **`allow`** with one; `B frontmatter, listed key` is `DENY` on both sides (different messages); `D indented frontmatter` is `allow` without a BOM and **`DENY`** with one. If the probe exits early, fix the environment first — do not read anything into the results. The items count as fixed only when every line's BOM result equals its no-BOM result; then mark this doc DONE here and in `README.md`.
+Expected on `841ed3d`: the probe does not exit early; the first three lines are `DENY` without a BOM and **`allow`** with one; `B frontmatter, listed key` is `DENY` on both sides (different messages); `D indented frontmatter` and `D leading comment` are `allow` without a BOM and **`DENY`** with one; `D leading fence, then wrap` is `DENY` without a BOM and **`allow`** with one. If the probe exits early, fix the environment first — do not read anything into the results. The items count as fixed only when every line's BOM result equals its no-BOM result; then mark this doc DONE here and in `README.md`.
 
 Per the repo `CLAUDE.md`, read `CONTRIBUTING.md` before editing `vault-guard.sh`: any modified check must be seen to refuse something before it ships, and installed copies only update when `version` is bumped in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Open a PR; `main` is not pushed directly.

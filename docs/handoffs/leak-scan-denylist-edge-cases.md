@@ -14,19 +14,23 @@
 
 **Problem.** Terms are joined into `r"(?i)\b(?:" + "|".join(re.escape(t) for t in custom) + r")\b"` (`scripts/leak-scan.py`, the `pats["private-term"]` line in `main()`, around line 150). `\b` needs a word/non-word transition at each end. When a term's first or last character is not a word character — `C++`, `.NET`, `@examplehandle`, `Acme!` — that edge only matches if the neighbouring character in the text *is* a word character. So `C++` matches inside `C++11` but not in `we use C++ here`, and `.NET` matches inside `ASP.NET Core` but not in `we use .NET; x`. The term is still counted, so the summary reports `N local terms` for names that mostly are not being caught.
 
-**The same failure hits real names ending in a combining mark.** Python's `\w` does not match combining marks (category Mn/Mc), so a name whose last character is one — most Devanagari words (`नमस्ते` ends in U+0947, `हिंदी` in U+0940), many Indic and Southeast Asian scripts, and Latin names typed in decomposed form (`Zoë` as `e` + U+0308) — gets a trailing `\b` that can only match before another word character. These names never match in ordinary text today.
+**The same failure hits real names ending in a combining mark.** Python's `\w` does not match combining marks (category Mn/Mc), so a name whose last character is one — most Devanagari words (`नमस्ते` ends in U+0947, `हिंदी` in U+0940), many Indic and Southeast Asian scripts, and Latin names typed in decomposed form (`Zoe` followed by U+0308 COMBINING DIAERESIS, which renders as Zoë) — gets a trailing `\b` that can only match before another word character. These names never match in ordinary text today.
 
-**Evidence (main at `841ed3d`).** Each punctuation term alone against a tracked file containing `we use C++ and .NET; ping @examplehandle; Acme! rocks` → `leak-scan: clean (1 files, 7 built-in patterns, 1 local term)`, exit 0, for all four. Control: the word term `rocks` → exit 1. Denylist `नमस्ते` against `नमस्ते दुनिया`, `हिंदी` against `मैं हिंदी बोलता हूँ`, and decomposed `Zoë` against `hello Zoë today` → exit 0 for all three.
+**Evidence (main at `841ed3d`).** Each punctuation term alone against a tracked file containing `we use C++ and .NET; ping @examplehandle; Acme! rocks` → `leak-scan: clean (1 files, 7 built-in patterns, 1 local term)`, exit 0, for all four. Control: the word term `rocks` → exit 1. Denylist `नमस्ते` against `नमस्ते दुनिया`, `हिंदी` against `मैं हिंदी बोलता हूँ`, and decomposed Zoë (`Zoe` + U+0308) against `hello` + that name + `today` → exit 0 for all three.
 
 **Why it matters.** Handles, company names with punctuation, product names and names in non-Latin scripts are exactly the terms people list. A gate that counts a term it cannot match reports coverage it does not have — and for the combining-mark case, the silently unprotected terms are people's names.
 
-**Fix.** Replace the fixed `\b…\b` with a per-term boundary that treats letters, digits, `_` **and combining marks** as word characters. Python's `re` has no `\p{M}`, so either (a) build the pattern without boundaries and filter each candidate match in Python — reject it if the character just before a word-edged start, or just after a word-edged end, is `\w` or has `unicodedata.category(c)` starting with `M` — or (b) generate an explicit character class for combining marks from `unicodedata` once at load. "Word-edged" means the term's own first/last character is `\w` or a combining mark; a punctuation-edged side gets no boundary check at all. Test edges with `re.match(r"\w", c)` plus the category check, not `str.isalnum()` — they differ on `_`, and `isalnum()` would make the term `_priv` newly match inside `my_priv`.
+**Fix.** Replace the fixed `\b…\b` with per-term lookaround boundaries, where "word character" means `\w` **or a combining mark** (any Unicode category starting with `M`). Python's `re` has no `\p{M}`, so build that class once at load from `unicodedata` — every code point whose category starts with `M`, each `re.escape`d — as `wordish = "[\w" + marks + "]"`. Then, per term: add `(?<!wordish)` in front only if the term's first character matches `wordish`, add `(?!wordish)` after only if its last character does, and join the bounded terms with `|` under `(?i)`. A punctuation-edged side gets no boundary check. This design was implemented in a scratch copy on 2026-09-17 and met every Done when case below (20 of 20), including prefix-sharing names. Building the mark class scans all code points once per run; cache it if start-up time matters.
 
-**Do not** apply `(?<!\w)` / `(?!\w)` to every term unconditionally: that fixes the ordinary-text case but *stops* matches that block today — `.NET` in `ASP.NET Core`, `C++` in `C++11`, `@examplehandle` in `bob@examplehandle` would all pass. On a leak gate that narrowing is a regression. And do not test edges with `\w` alone: that classifies `नमस्ते` as punctuation-edged and would let it match inside a longer word.
+**Do not** filter unbounded matches afterwards in Python ("match the term anywhere, then reject candidates whose neighbours are word characters"). `re.finditer` returns only the leftmost non-overlapping match of the alternation, so rejecting a candidate loses a longer term that starts at the same place: with denylist `Ann` and `Anna`, the text `met Anna today` would stop being blocked. The lookaround version lets the regex engine backtrack to `Anna`, as `\b` does today.
+
+**Do not** apply `(?<!\w)` / `(?!\w)` to every term unconditionally either: that fixes the ordinary-text case but *stops* matches that block today — `.NET` in `ASP.NET Core`, `C++` in `C++11`, `@examplehandle` in `bob@examplehandle` would all pass. And do not test edges with `\w` alone: that classifies `नमस्ते` as punctuation-edged and lets it match inside a longer word. Test with the regex's own `\w` plus the mark class, not `str.isalnum()` — they differ on `_`, and `isalnum()` would make the term `_priv` newly match inside `my_priv`.
 
 **Files.** `scripts/leak-scan.py` (`main()`, pattern construction), `CHANGELOG.md`, both version fields.
 
-**Done when.** Each punctuation-edged term, **tested alone**, blocks the ordinary-text file above; the three combining-mark names block their sentences, and `नमस्ते` does not match inside a longer word such as `नमस्तेजी`; every match that blocks today still blocks (`C++` in `C++11`, `.NET` in `ASP.NET Core`, `@examplehandle` in `bob@examplehandle`); word terms are unchanged (`Alice` blocks `hello Alice`, not `Alicent`; `_priv` blocks `x _priv y`, not `my_priv`); a clean tree still exits 0.
+**Done when.** Each punctuation-edged term, **tested alone**, blocks the ordinary-text file above; punctuation-edged matches that block today still block (`C++` in `C++11`, `.NET` in `ASP.NET Core`, `@examplehandle` in `bob@examplehandle`); the three combining-mark names block their sentences; names that share a prefix still block (denylist `Ann` + `Anna` blocks `met Anna today`; `Bob` + `Bobby` blocks `hi Bobby`); ordinary word terms are unchanged (`Alice` blocks `hello Alice`, not `Alicent`; `_priv` blocks `x _priv y`, not `my_priv`); a clean tree still exits 0.
+
+**Intended narrowing — not a regression.** Two things that block today should stop, because the old `\b` treated a combining mark as a word edge: `नमस्ते` inside the longer word `नमस्तेजी`, and the term `Jose` inside `Jose` followed by U+0301 (a decomposed `José`). Both now behave like `Alice` versus `Alicent`.
 
 ## P3 — Unreadable or non-UTF-8 denylist crashes with a raw traceback
 
@@ -50,11 +54,11 @@
 
 **Why it matters.** Lower likelihood than a byte-order mark, same failure shape: the count claims coverage that does not exist.
 
-**Fix — decide first.** Trim a small, explicit set of known-invisible non-Cf characters at token edges (variation selectors U+FE00–U+FE0F and U+E0100–U+E01EF, U+034F, U+115F, U+1160, U+3164, U+FFA0), and record the list and the reason in a comment and the CHANGELOG. **Avoid** two tempting alternatives: trimming category Mn wholesale, or warning whenever a term's last character is not a letter, digit or punctuation. Combining marks legitimately end real names — `नमस्ते` ends in U+0947 (Mn), `हिंदी` in U+0940 (Mc), a decomposed `Zoë` in U+0308 (Mn) — so both would mangle or flag genuine terms. (Those names do not *match* today either, but that is the P2 boundary item above, not this one.)
+**Fix — decide first.** Trim, at token edges, the characters Unicode itself marks as invisible: the `Default_Ignorable_Code_Point` property from `DerivedCoreProperties.txt`, minus what `clean()` already trims (category Cf). Python's `unicodedata` does not expose that property, so vendor the ranges for a pinned Unicode version in a comment-sourced constant rather than writing a list from memory — a hand list is how the first attempt missed characters. For orientation, the non-Cf members include variation selectors (U+180B–U+180D, U+180F, U+FE00–U+FE0F, U+E0100–U+E01EF), U+034F COMBINING GRAPHEME JOINER, U+17B4–U+17B5 KHMER VOWEL INHERENT AQ/AA, and the Hangul fillers U+115F, U+1160, U+3164, U+FFA0 — check against the pinned file, do not copy this sentence as the list. Record the Unicode version in the CHANGELOG. **Avoid** two tempting alternatives: trimming category Mn wholesale, or warning whenever a term's last character is not a letter, digit or punctuation. Combining marks legitimately end real names — `नमस्ते` ends in U+0947 (Mn), `हिंदी` in U+0940 (Mc), a decomposed Zoë (`Zoe` + U+0308, Mn) — so both would mangle or flag genuine terms. (Those names do not *match* today either, but that is the P2 boundary item above, not this one.)
 
 **Files.** `scripts/leak-scan.py` (`clean()`).
 
-**Done when.** Both evidence cases behave like their plain versions (the comment is not a term and the no-terms warning appears; `Alice` blocks); `clean()` returns `नमस्ते`, `हिंदी` and decomposed `Zoë` unchanged (their final combining mark is kept); the 0.5.2 Cf behaviour is unchanged.
+**Done when.** Both evidence cases behave like their plain versions (the comment is not a term and the no-terms warning appears; `Alice` blocks); `clean()` returns `नमस्ते`, `हिंदी` and decomposed Zoë (`Zoe` + U+0308) unchanged (their final combining mark is kept); the 0.5.2 Cf behaviour is unchanged.
 
 ## P3 — Hit order is nondeterministic
 
@@ -68,7 +72,7 @@
 
 **Files.** `scripts/leak-scan.py` (`main()`).
 
-**Done when.** The order probe prints the same order — the order of first occurrence in the line — for all four seeds, and repeated occurrences of one term on a line are still reported once.
+**Done when.** The order probe prints the same list for all four seeds — each term once, in order of first occurrence in the line (`Zed Alpha Mike Bravo Kilo`), even though `Zed` appears twice on that line.
 
 ## Re-verify ground truth before acting
 
@@ -104,22 +108,25 @@ for term, body in keep.items():
     print(f"P2 must stay blocked {term:15}:", run(term.encode() + b"\n", {"k.md": body}))
 print("P2 word: Alice / Alicent :", run(b"Alice\n", {"a.md": b"hello Alice\n"}), "//", run(b"Alice\n", {"a.md": b"Alicent\n"}))
 print("P2 word: _priv / my_priv :", run(b"_priv\n", {"a.md": b"x _priv y\n"}), "//", run(b"_priv\n", {"a.md": b"my_priv\n"}))
-zoe = "Zoë"
+zoe = "Zoe\u0308"
 for term, sentence in [("नमस्ते", "नमस्ते दुनिया"), ("हिंदी", "मैं हिंदी बोलता हूँ"), (zoe, f"hello {zoe} today")]:
     print(f"P2 combining-mark name {term!r:12}:", run((term + "\n").encode(), {"t.md": sentence.encode()}))
 print("P2 no match inside word  :", run("नमस्ते\n".encode(), {"t.md": "नमस्तेजी\n".encode()}))
+print("P2 prefix Ann+Anna / Anna :", run(b"Ann\nAnna\n", {"t.md": b"met Anna today\n"}))
+print("P2 prefix Bob+Bobby/Bobby :", run(b"Bob\nBobby\n", {"t.md": b"hi Bobby\n"}))
+print("P2 Jose / decomposed Jose :", run(b"Jose\n", {"t.md": ("hi Jose" + "\u0301" + "\n").encode()}))
 print("P3 denylist is a dir  :", run(None, {"a.md": b"x\n"}, as_dir=True))
 print("P3 unreadable         :", run(b"Name\n", {"a.md": b"x\n"}, mode=0))
 print("P3 UTF-16 denylist    :", run("Name\n".encode("utf-16"), {"a.md": b"x\n"}))
 print("P3 invalid UTF-8      :", run(b"Caf\xe9\n", {"a.md": b"x\n"}))
-print("P3 VS16 + comment     :", run("️# only a comment\n".encode(), {"a.md": b"x\n"}))
-print("P3 CGJ + name         :", run("͏Alice\n".encode(), {"n.md": b"hello Alice\n"}))
+print("P3 VS16 + comment     :", run("\ufe0f# only a comment\n".encode(), {"a.md": b"x\n"}))
+print("P3 CGJ + name         :", run("\u034fAlice\n".encode(), {"n.md": b"hello Alice\n"}))
 for seed in "1234":
     print(f"P3 order seed {seed}      :", run(b"Zed\nAlpha\nMike\nBravo\nKilo\n",
-          {"n.md": b"Zed Alpha Mike Bravo Kilo\n"}, env={"PYTHONHASHSEED": seed}))
+          {"n.md": b"Zed Alpha Mike Bravo Kilo Zed\n"}, env={"PYTHONHASHSEED": seed}))
 PY
 ```
 
-Expected on `841ed3d`: the four `P2 alone` lines each exit 0 with `1 local term`, and the control exits 1; the three `must stay blocked` lines exit 1; `Alice` exits 1 then 0, `_priv` exits 1 then 0; the three combining-mark names exit 0 (the defect) and `no match inside word` exits **1** (today's `\b` also lets `नमस्ते` match inside `नमस्तेजी`, because the next character is a word character — the boundary is wrong in both directions for these names); the four unreadable cases exit 1 with a Python exception as the last stderr line; both non-Cf cases exit 0; the four order lines differ. After a fix, compare against that item's **Done when**, not against "the output changed". An item counts as already fixed only if every line for it matches its Done when — a partial fix (for example, only the trailing boundary) turns some `P2 alone` lines to exit 1 but not all.
+Expected on `841ed3d`: the four `P2 alone` lines each exit 0 with `1 local term`, and the control exits 1; the three `must stay blocked` lines exit 1; `Alice` exits 1 then 0, `_priv` exits 1 then 0; the three combining-mark names exit 0 (the defect) and `no match inside word` exits **1** (today's `\b` also lets `नमस्ते` match inside `नमस्तेजी`, because the next character is a word character — the boundary is wrong in both directions for these names); both `prefix` lines exit 1 (they must stay 1 after a fix); `Jose / decomposed Jose` exits 1 (it should become 0 — see Intended narrowing); the four unreadable cases exit 1 with a Python exception as the last stderr line; both non-Cf cases exit 0; the four order lines differ, and each lists every term once. After a fix, compare against that item's **Done when**, not against "the output changed". An item counts as already fixed only if every line for it matches its Done when — a partial fix (for example, only the trailing boundary) turns some `P2 alone` lines to exit 1 but not all.
 
 Per `CONTRIBUTING.md`, any change to this gate must be seen to refuse something before it ships, and per `CLAUDE.md` a fix reaches installed copies only with a version bump in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Open a PR; `main` is not pushed directly.
