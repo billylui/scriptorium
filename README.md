@@ -75,6 +75,20 @@ Ordered by how much trouble each one actually causes. Every check is individuall
 
 Nine further laws are specified in [`LAWS.md`](LAWS.md) and held by the agent rather than the hook. They are the specification for the checks that should replace them.
 
+## The daily loop
+
+Three skills ship with the plugin and cover a working day:
+
+| | |
+|---|---|
+| `vault-up` | Open the day — today's note, inbox state, what is active, what is stale |
+| `vault-log` | Capture during it — classify, file, link, log, and clear the inbox item |
+| `vault-wrap` | Close it — synthesise the day, sweep the inbox, find orphans, flag stale projects, lint what the hook could not see, refresh the index |
+
+`vault-wrap` is where the lint pass lives. **The hook only sees `Write` and `Edit`**, so anything that arrived by shell, sync or another editor is caught here or not at all.
+
+[`METHOD.md`](METHOD.md) explains what the loop is for.
+
 ## Install
 
 ```

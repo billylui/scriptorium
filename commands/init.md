@@ -45,7 +45,40 @@ Copy `${CLAUDE_PLUGIN_ROOT}/.scriptorium.example.json` to `<vault>/.scriptorium.
 
 Copy `${CLAUDE_PLUGIN_ROOT}/templates/` into the folder named by `templates_folder`. If files collide, list them and ask.
 
-## 6. Prove the guard fires — do not skip, do not simulate
+## 6. Write the vault's `CLAUDE.md` — do not skip this
+
+**Without it the agent has no instructions and none of the laws apply.** The plugin installs a hook and some skills; it does not tell the agent how to run the vault. A vault with a structure and an empty `CLAUDE.md` behaves like any other directory.
+
+Generate `<vault>/CLAUDE.md` from `${CLAUDE_PLUGIN_ROOT}/templates/vault-CLAUDE.md`, substituting every `{{placeholder}}` with the values you just wrote into `.scriptorium.json`:
+
+- `{{structure}}` — their actual folders, with a one-line purpose each
+- `{{root_allowlist}}`, `{{landing_note_parents}}`, `{{required_frontmatter}}`, `{{day_boundary_hour}}`, `{{inbox_folder}}`, `{{daily_folder}}`, `{{index_filename}}`, `{{protected_surfaces}}`, `{{search_command}}` — from their config
+- `{{inbox_line}}` — one sentence on the inbox being the only entry point. Omit if they have no inbox folder
+- `{{untrusted_line}}` — the trust-boundary rule naming their `untrusted_folders`. **Omit entirely if that list is empty** rather than leaving a rule about nothing
+
+**Never leave a `{{placeholder}}` in the output**, and never write a law about a folder they do not have. If a key is unset, drop that line — a rule referring to a nonexistent folder teaches the agent to ignore rules.
+
+Show them the result and say plainly: this file is theirs, it loads every session, and anything about how *they* work goes at the bottom.
+
+If a `CLAUDE.md` already exists, **do not overwrite it.** Show what you would add and let them merge.
+
+## 7. Search — the laws depend on it
+
+Two laws tell the agent to search before answering. Both are inert until `search_command` points at something real.
+
+Ask what they want to use. Any tool works — ripgrep is fine and already installed. A semantic search tool indexes better for this kind of vault, at the cost of an install and an index step. Set `search_command` with `{query}` where the term goes, and **verify it returns results before moving on.**
+
+If they have no preference, set ripgrep now so the laws work today, and tell them it is swappable by editing one config line.
+
+## 8. A profile note, and their first Areas
+
+**Profile.** Create one note with `type: profile` as the canonical hub for facts about them — the entry point other notes link to when they need something personal. It should link out to the authoritative note per topic rather than storing everything itself. Exactly one per vault.
+
+**Areas.** Ask what is genuinely ongoing in their life — domains with no finish line. Propose four to six and let them cut the list. Create the folder and its landing note together.
+
+**Push back on over-building.** Three real Areas beat ten speculative ones; the empty ones become clutter that makes the vault feel like a chore. Say so if they start listing aspirations rather than things they actually attend to.
+
+## 9. Prove the guard fires — do not skip, do not simulate
 
 An inert guard and a working guard are indistinguishable until one says no.
 
@@ -54,11 +87,11 @@ Pick a basename **not** in `root_allowlist` and try to write it at the vault roo
 - **Refused:** quote the refusal back so they see what one looks like. Confirm no file was created.
 - **Succeeded:** the guard is NOT running. Delete the file and say so plainly. Diagnose in order and report which failed: `claude plugin list` shows `scriptorium@scriptorium` **enabled**; `jq . .scriptorium.json` parses; `command -v jq python3` both resolve; the check is not off in `checks`.
 
-## 7. First note, so the vault is not empty
+## 10. First note, so the vault is not empty
 
 Create today's daily note from the template. If they scaffolded, offer to create one Area for something ongoing in their life, with its landing note — a worked example beats a description.
 
-## 8. Hand over
+## 11. Hand over
 
 Four or five lines: which checks are on, that `.scriptorium.json` changes behaviour with no reinstall, that `/scriptorium:verify` re-runs the proof, and where `METHOD.md` is for how to actually run the thing.
 

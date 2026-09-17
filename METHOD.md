@@ -61,6 +61,8 @@ This is the whole daily mechanic.
 
 Steps 2–6 are what the agent does for you. Your job is step 1.
 
+The `vault-log` skill runs this loop; `vault-up` opens the day and `vault-wrap` closes it.
+
 ## People
 
 One file per person, `Firstname-Lastname.md`, in `02-People/`. Flat, no sub-folders.

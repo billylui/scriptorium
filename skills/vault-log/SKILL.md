@@ -126,4 +126,4 @@ Keep it tight — the whole output should fit on one screen:
 4. Open loops and reflection prompts (one message, both skippable)
 5. Search index status
 
-No tables, no stats blocks, no stale-project scans. Those belong to an end-of-day pass, not a session capture.
+No tables, no stats blocks, no stale-project scans. Those belong to an end-of-day pass (`vault-wrap`), not a session capture.

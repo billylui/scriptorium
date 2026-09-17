@@ -4,6 +4,13 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-17
+
+### Added
+- **`/scriptorium:init` now writes the vault's `CLAUDE.md`.** Without it the agent had no instructions and none of the laws applied — the plugin installed a hook and some skills, then left the vault behaving like any other directory. Generated from a template with the vault's own folder names, and lines about folders the vault does not have are dropped rather than left dangling.
+- `vault-wrap` skill — the closing pass. The daily loop was missing its third step: nothing synthesised the day, swept the inbox, found orphans, flagged stale projects, or linted what the write-time hook cannot see.
+- `init` now sets up search (the two research laws are inert until `search_command` points at something real), creates a `type: profile` hub note, and helps pick starter Areas — while pushing back on over-building.
+
 ## [0.3.0] — 2026-09-17
 
 ### Added
