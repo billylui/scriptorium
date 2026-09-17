@@ -4,6 +4,12 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-09-17
+
+### Fixed
+- **The leak scanner said `no .leakterms.local` when the file existed but listed no deny terms.** A denylist holding only comments and `!` exemptions checks no names at all, and the message made that look like a missing file rather than an empty list, so the gap was easy to miss. The summary now distinguishes a missing file, a file with no deny terms, and a file with N terms, and both no-terms states print a warning on stderr. Exit codes are unchanged: a warning never blocks a commit, and a real hit still does.
+- **Unicode format characters in `.leakterms.local` counted as deny terms or broke real ones.** `strip()` removes whitespace but not format characters (Unicode category Cf) — a byte-order mark, zero-width spaces and joiners, bidi marks, soft hyphens. One at the start of a comment turned it into a "term", so a denylist checking no names reported one and suppressed the warning; one next to a real name meant that name never matched. Each line and each `!` exemption body is now trimmed of whitespace and format characters at both ends, by category rather than a fixed list; the path and label either side of an exemption's `:` are trimmed of format characters only, so an exemption with spaces around its `:` stays inert exactly as before. Characters inside a term are left as written. Invisible characters that are not format characters — variation selectors, the combining grapheme joiner, filler characters — are not trimmed and behave as they did. Denylists without format characters behave exactly as before.
+
 ## [0.5.1] — 2026-09-17
 
 ### Fixed

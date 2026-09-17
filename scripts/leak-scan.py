@@ -24,7 +24,7 @@ never as "reviewed". Read the diff.
 
 Exit 1 on any hit, so it works as a pre-commit hook.
 """
-import re, subprocess, sys
+import re, subprocess, sys, unicodedata
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -47,6 +47,35 @@ SKIP_SUFFIX = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".lock"}
 SELF = Path(__file__).name
 
 
+DENYLIST = ".leakterms.local"
+
+
+def clean(token, whitespace=True):
+    """Trim invisible format characters (and, by default, whitespace) from both ends of a token.
+
+    Python's strip() removes whitespace but not Unicode format characters
+    (category Cf: byte-order mark, zero-width space and joiners, bidi marks,
+    soft hyphen, isolates). Left on a denylist token, one of them turns a
+    comment or blank line into a "term" that matches nothing, so the count
+    claims a name is checked when none is, or stops a real name from matching.
+    Tested by category rather than a character list, so no list can go stale
+    or be silently emptied. Characters inside a token are left alone.
+
+    whitespace=False trims only format characters. The parts of a "!glob:label"
+    exemption use it so that clean() never widens what an existing exemption
+    matches: "! README.md : private-term" keeps its trailing space and stays
+    inert, exactly as before, rather than starting to allow a file.
+    """
+    def invisible(c):
+        return (whitespace and c.isspace()) or unicodedata.category(c) == "Cf"
+    start, end = 0, len(token)
+    while start < end and invisible(token[start]):
+        start += 1
+    while end > start and invisible(token[end - 1]):
+        end -= 1
+    return token[start:end]
+
+
 def terms():
     """Read the denylist. Lines starting with '!' are path exemptions.
 
@@ -54,20 +83,24 @@ def terms():
     be published — a copyright line being the canonical example. Keep the list
     short: each entry is a file nobody is checking any more.
     """
-    f = ROOT / ".leakterms.local"
+    f = ROOT / DENYLIST
     if not f.exists():
         return [], []
     deny, allow = [], []
     for line in f.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+        line = clean(line)
         if not line or line.startswith("#"):
             continue
         if line.startswith("!"):
             # "!path" exempts a file entirely; "!path:label" exempts one pattern
             # in that file. Prefer the second — a blanket exemption also switches
             # off the name checks, which are the ones that catch real leaks.
-            body = line.lstrip("!").strip()
-            allow.append(tuple(body.split(":", 1)) if ":" in body else (body, None))
+            body = clean(line.lstrip("!"))
+            if ":" in body:
+                glob, label = body.split(":", 1)
+                allow.append((clean(glob, whitespace=False), clean(label, whitespace=False)))
+            else:
+                allow.append((body, None))
         else:
             deny.append(line)
     return deny, allow
@@ -82,12 +115,36 @@ def files():
     # Never scan the denylist itself: it is a list of the very terms being
     # hunted, and it should be gitignored anyway — but if someone commits it by
     # mistake, a wall of self-matches is a useless way to find that out.
-    skip = {SELF, ".leakterms.local"}
+    skip = {SELF, DENYLIST}
     return [p for p in listed if p.is_file() and p.suffix not in SKIP_SUFFIX and p.name not in skip]
+
+
+def denylist_state(custom):
+    """Summary fragment and optional warning for the denylist.
+
+    A missing file and a file holding only comments and exemptions both mean no
+    name is being checked, and the built-in patterns never catch a name. Saying
+    "no .leakterms.local" about a file that exists hides exactly that, so the two
+    states are reported separately and both warn.
+    """
+    if not (ROOT / DENYLIST).exists():
+        return (f"no {DENYLIST}",
+                f"leak-scan: warning — no {DENYLIST}, so no names are checked. "
+                f"Built-in patterns do not catch names. Copy .leakterms.example to {DENYLIST} and list them.")
+    if not custom:
+        return (f"{DENYLIST} has no deny terms",
+                f"leak-scan: warning — {DENYLIST} exists but lists no deny terms (only comments or '!' exemptions), "
+                f"so no names are checked. Built-in patterns do not catch names.")
+    n = len(custom)
+    return f"{n} local term{'s' if n != 1 else ''}", None
 
 
 def main():
     custom, exempt = terms()
+    summary, warning = denylist_state(custom)
+    if warning:
+        # stderr, never a failure: an empty denylist is a gap to see, not a leak to block.
+        print(warning, file=sys.stderr)
     pats = dict(BUILTIN)
     if custom:
         pats["private-term"] = r"(?i)\b(?:" + "|".join(re.escape(t) for t in custom) + r")\b"
@@ -112,16 +169,14 @@ def main():
                     hits.append((f.relative_to(ROOT), n, label, m[:48]))
 
     if not hits:
-        n = len(custom)
         ex = f", {len(exempt)} exempt" if exempt else ""
-        print(f"leak-scan: clean ({len(scanned)} files{ex}, {len(BUILTIN)} built-in patterns"
-              + (f", {n} local term{'s' if n != 1 else ''})" if n else ", no .leakterms.local)"))
+        print(f"leak-scan: clean ({len(scanned)} files{ex}, {len(BUILTIN)} built-in patterns, {summary})")
         return 0
 
     print("leak-scan: BLOCKED — personal material found\n", file=sys.stderr)
     for path, n, label, tok in hits:
         print(f"  {path}:{n}  [{label}]  {tok!r}", file=sys.stderr)
-    print(f"\n{len(hits)} hit(s). Fix them, or exempt a path with a '!glob' line in .leakterms.local.", file=sys.stderr)
+    print(f"\n{len(hits)} hit(s). Fix them, or exempt a path with a '!glob' line in {DENYLIST}.", file=sys.stderr)
     return 1
 
 
