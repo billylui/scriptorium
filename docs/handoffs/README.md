@@ -6,5 +6,5 @@ When an item ships, flip its status in the doc and in this index in the same PR.
 
 | Topic | Priority | Status | Opened |
 |---|---|---|---|
-| [Vault guard: BOM defeats frontmatter detection](vault-guard-bom-frontmatter.md) — check B allows a comma-joined wikilink string on an unlisted key; check D refuses valid frontmatter as a hard wrap | P2 | OPEN | 2026-09-17 |
-| [Leak scan: denylist edge cases](leak-scan-denylist-edge-cases.md) — punctuation-edged terms never match (P2); unreadable/UTF-16 denylist traceback, non-format invisible characters, nondeterministic hit order (P3) | P2 / P3 | OPEN | 2026-09-17 |
+| [Vault guard: BOM defeats frontmatter and fence detection](vault-guard-bom-frontmatter.md) — check B allows comma-joined wikilink strings (unlisted key, listed key on the first line, key after a leading fence); check D refuses valid frontmatter as a hard wrap | P2 | OPEN | 2026-09-17 |
+| [Leak scan: denylist edge cases](leak-scan-denylist-edge-cases.md) — terms starting or ending with punctuation, and names ending in a combining mark (Devanagari, decomposed accents), fail to match in ordinary text (P2); unreadable/UTF-16 denylist traceback, non-format invisible characters, nondeterministic hit order (P3) | P2 / P3 | OPEN | 2026-09-17 |
