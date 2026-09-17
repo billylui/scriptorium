@@ -6,5 +6,5 @@ When an item ships, flip its status in the doc and in this index in the same PR.
 
 | Topic | Priority | Status | Opened |
 |---|---|---|---|
-| [Vault guard: BOM defeats frontmatter and fence detection](vault-guard-bom-frontmatter.md) — check B allows comma-joined wikilink strings (unlisted key, listed key on the first line, key after a leading fence); check D refuses valid frontmatter as a hard wrap | P2 | OPEN | 2026-09-17 |
-| [Leak scan: denylist edge cases](leak-scan-denylist-edge-cases.md) — terms starting or ending with punctuation, and names ending in a combining mark (Devanagari, decomposed accents), fail to match in ordinary text (P2); unreadable/UTF-16 denylist traceback, non-format invisible characters, nondeterministic hit order (P3) | P2 / P3 | OPEN | 2026-09-17 |
+| [Vault guard: BOM defeats frontmatter and fence detection](vault-guard-bom-frontmatter.md) — a leading byte-order mark makes check B allow comma-joined wikilink strings, and makes check D both refuse valid content (frontmatter, a leading comment) and allow wrapped prose after a leading fence; fix once at the content choke point | P2 | OPEN | 2026-09-17 |
+| [Leak scan: denylist edge cases](leak-scan-denylist-edge-cases.md) — terms starting or ending with punctuation, and names ending in a combining mark (Devanagari, decomposed accents), fail to match in ordinary text — the fix is a boundary design decision, fail-closed recommended (P2); unreadable/UTF-16 denylist traceback, non-format invisible characters, nondeterministic hit order (P3) | P2 / P3 | OPEN | 2026-09-17 |

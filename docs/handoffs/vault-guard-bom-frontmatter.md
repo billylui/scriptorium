@@ -2,12 +2,12 @@
 
 **Status:** OPEN · **Opened:** 2026-09-17 · **Owner:** unassigned
 
-`scripts/vault-guard.sh` is the `PreToolUse` hook (matcher `Write|Edit`) that refuses vault-corrupting writes. Several of its content checks look at the very first characters of the content or of a line. When the content begins with a UTF-8 byte-order mark (U+FEFF), those tests miss, and the guard misbehaves in **both** directions: it allows writes it should refuse, and refuses a write it should allow. Confirmed on `main` at `841ed3d` (plugin 0.5.2).
+`scripts/vault-guard.sh` is the `PreToolUse` hook (matcher `Write|Edit`) that refuses vault-corrupting writes. Several of its content checks look at the very first characters of the content or of a line. When the content begins with a UTF-8 byte-order mark (U+FEFF), those tests miss, and the guard misbehaves in **both** directions: it allows writes it should refuse, and refuses writes it should allow. Confirmed on `main` at `841ed3d` (plugin 0.5.2).
 
 ## What already shipped (LIVE — do not redo)
 
 - The same defect shape was fixed in the leak scanner's denylist parsing in PR #1 (0.5.2): `clean()` in `scripts/leak-scan.py` trims whitespace and Unicode format characters (category Cf, which includes U+FEFF) from token edges. That fix does **not** touch `vault-guard.sh`; nothing here has been changed yet.
-- 0.5.1 taught check D to track multi-line HTML comment state; that logic is unaffected by this item.
+- 0.5.1 taught check D to track multi-line HTML comment state. That state tracking is correct once a comment is recognised; this item is about the opening `<!--` not being recognised on the first line.
 
 ## P2 — Check B allows comma-joined wikilink strings (fail-open)
 
@@ -33,11 +33,12 @@ A listed key that is *not* on the first line and not after a leading fence is st
 
 ## P2 — Check D misreads the first line: false refusals and a fail-open
 
-Check D's embedded Python compares stripped lines against markers, and `str.strip()` does not remove U+FEFF, so every marker test on line 0 misses when a BOM leads the content. Three sites:
+Check D's embedded Python compares stripped lines against markers, and `str.strip()` does not remove U+FEFF, so marker tests on line 0 miss when a BOM leads the content. Examples found so far — **not an exhaustive list**:
 
 - `fm = bool(lines) and lines[0].strip() == "---"` (around line 150) — frontmatter not recognised, so a long YAML value continued on an indented line (valid YAML, a multi-line plain scalar) is checked as prose and looks like a wrap → **false refusal**;
 - `s.startswith("<!--")` (around line 164) — a leading multi-line HTML comment not recognised, so its continuation lines are checked as prose → **false refusal**;
-- `s.startswith("```")` (around line 167) — a leading fence not recognised, so fence state is inverted: the closing fence turns skipping **on**, and a genuinely hard-wrapped paragraph after the block is skipped → **allowed (fail-open)**.
+- `s.startswith("```") or s.startswith("~~~")` (around line 167) — a leading fence of either kind not recognised, so fence state is inverted: the closing fence turns skipping **on**, and a genuinely hard-wrapped paragraph after the block is skipped → **allowed (fail-open)**;
+- `wrapped()` measures `len(cur.rstrip())` — on line 0 the BOM adds one character, so a first line just under the length floor followed by a long word is treated as a wrap → **false refusal**.
 
 **Evidence** (same temp vault, no BOM → with a leading U+FEFF):
 
@@ -55,9 +56,9 @@ Normalise once, at the single point content enters the checks, rather than patch
 content="$(printf '%s' "$input" | jq -r '.tool_input.content // .tool_input.new_string // empty' 2>/dev/null)"
 ```
 
-Every content check reads `$content` from there (check B's `case` and both awk scripts, check D's Python), and checks A and C only look at the file path, so this one change covers all the sites above. Decide deliberately whether to also trim other Cf characters before the first line (to match `clean()` in `leak-scan.py`) and state the choice in the CHANGELOG.
+Every content check reads `$content` from there (check B's `case` and both awk scripts, check D's Python), and checks A and C only look at the file path, so this one change covers every site above and any not yet found. Decide deliberately whether to also trim other Cf characters before the first line (to match `clean()` in `leak-scan.py`) and state the choice in the CHANGELOG.
 
-Before fixing, enumerate every content-position comparison and record the list in the PR, so the choke-point claim is checked rather than assumed. A starting grep — extend it if it misses anything you find by reading:
+Do **not** fix this by patching individual comparisons: on 2026-09-17 a reviewer patched every site named in an earlier draft of this doc, and all probe pairs matched while a `~~~` fence and the line-0 length were still broken. Still enumerate the content-position comparisons and record them in the PR, so the choke-point claim is checked rather than assumed. A starting grep — extend it if it misses anything you find by reading:
 
 ```bash
 grep -nE 'NR==1|lines\[0\]|case "\$content"|\^---|\^\[\[:space:\]\]\*|"\$content"|startswith\(|\.match\(' scripts/vault-guard.sh
@@ -65,7 +66,12 @@ grep -nE 'NR==1|lines\[0\]|case "\$content"|\^---|\^\[\[:space:\]\]\*|"\$content
 
 **Files.** `scripts/vault-guard.sh`, `CHANGELOG.md`, both version fields.
 
-**Done when.** Every no-BOM/BOM pair in the probe below gives the same result as its no-BOM line (the four check B shapes and the fence-then-wrap shape are denied; the indented frontmatter and the leading comment are allowed). A fix that patches individual comparisons rather than normalising `$content` once is likely to miss one of these seven shapes — that is why the probe has all of them; every existing refusal still fires (stray root `.md`, comma-joined links on listed and unlisted keys, a genuine hard wrap in body prose, a wrap immediately after a multi-line comment); `/scriptorium:verify` passes in a real vault.
+**Done when:**
+
+- the BOM is removed **once**, where `content` is assigned, and no individual comparison is patched instead (this is the structural requirement — the probe alone cannot prove completeness);
+- every no-BOM/BOM pair in the probe below gives the same result as its no-BOM line (the four check B shapes and the fence-then-wrap shape are denied; the indented frontmatter and the leading comment are allowed);
+- every existing refusal still fires: stray root `.md`, comma-joined links on listed and unlisted keys, a genuine hard wrap in body prose, a wrap immediately after a multi-line comment;
+- `/scriptorium:verify` passes in a real vault.
 
 ## Re-verify ground truth before acting
 
@@ -109,6 +115,6 @@ for label, tool, text in cases:
 PY
 ```
 
-Expected on `841ed3d`: the probe does not exit early; the first three lines are `DENY` without a BOM and **`allow`** with one; `B frontmatter, listed key` is `DENY` on both sides (different messages); `D indented frontmatter` and `D leading comment` are `allow` without a BOM and **`DENY`** with one; `D leading fence, then wrap` is `DENY` without a BOM and **`allow`** with one. If the probe exits early, fix the environment first — do not read anything into the results. The items count as fixed only when every line's BOM result equals its no-BOM result; then mark this doc DONE here and in `README.md`.
+Expected on `841ed3d`: the probe does not exit early; the first three lines are `DENY` without a BOM and **`allow`** with one; `B frontmatter, listed key` is `DENY` on both sides (different messages); `D indented frontmatter` and `D leading comment` are `allow` without a BOM and **`DENY`** with one; `D leading fence, then wrap` is `DENY` without a BOM and **`allow`** with one. If the probe exits early, fix the environment first — do not read anything into the results. Matching pairs are necessary but not sufficient: the items count as fixed only when the Done when list is met in full, including the structural requirement; then mark this doc DONE here and in `README.md`.
 
 Per the repo `CLAUDE.md`, read `CONTRIBUTING.md` before editing `vault-guard.sh`: any modified check must be seen to refuse something before it ships, and installed copies only update when `version` is bumped in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Open a PR; `main` is not pushed directly.
