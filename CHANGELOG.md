@@ -7,7 +7,8 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 ## [0.5.2] — 2026-09-17
 
 ### Fixed
-- **The leak scanner said `no .leakterms.local` when the file existed but listed no deny terms.** A denylist holding only comments and `!` exemptions checks no names at all, and the message made that look like a missing file rather than an empty list — so the gap went unnoticed while commits derived from material naming a real person were pushed. The summary now distinguishes a missing file, a file with no deny terms, and a file with N terms, and both no-terms states print a warning on stderr. Exit codes are unchanged: a warning never blocks a commit, and a real hit still does.
+- **The leak scanner said `no .leakterms.local` when the file existed but listed no deny terms.** A denylist holding only comments and `!` exemptions checks no names at all, and the message made that look like a missing file rather than an empty list, so the gap was easy to miss. The summary now distinguishes a missing file, a file with no deny terms, and a file with N terms, and both no-terms states print a warning on stderr. Exit codes are unchanged: a warning never blocks a commit, and a real hit still does.
+- **A byte-order mark or zero-width character in `.leakterms.local` counted as a deny term.** A file saved with a BOM turned its first comment into a "term", so a denylist checking no names reported one and suppressed the warning — and a BOM before the first real name meant that name never matched. The denylist is now read BOM-aware with zero-width characters stripped.
 
 ## [0.5.1] — 2026-09-17
 

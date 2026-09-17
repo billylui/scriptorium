@@ -48,6 +48,7 @@ SELF = Path(__file__).name
 
 
 DENYLIST = ".leakterms.local"
+ZERO_WIDTH = "​‌‍⁠﻿"
 
 
 def terms():
@@ -61,8 +62,12 @@ def terms():
     if not f.exists():
         return [], []
     deny, allow = [], []
-    for line in f.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    # utf-8-sig drops a byte-order mark, and zero-width characters are stripped
+    # with the whitespace: either one left on a line turns a comment or a blank
+    # line into a "term" that matches nothing, and the count then claims a
+    # denylist that checks no names is checking one.
+    for line in f.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip().strip(ZERO_WIDTH).strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("!"):
@@ -146,7 +151,7 @@ def main():
     print("leak-scan: BLOCKED — personal material found\n", file=sys.stderr)
     for path, n, label, tok in hits:
         print(f"  {path}:{n}  [{label}]  {tok!r}", file=sys.stderr)
-    print(f"\n{len(hits)} hit(s). Fix them, or exempt a path with a '!glob' line in .leakterms.local.", file=sys.stderr)
+    print(f"\n{len(hits)} hit(s). Fix them, or exempt a path with a '!glob' line in {DENYLIST}.", file=sys.stderr)
     return 1
 
 
