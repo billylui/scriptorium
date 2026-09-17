@@ -44,7 +44,7 @@ Four further laws are documented separately and not restated here: **AI-Write Bo
 - A folder reference does not exist. `[[Vendors]]` never resolves to `Vendors/<index_filename>` — see Law 2.
 - Relative paths (`[[../folder/file]]`) are unreliable across renderers. Use a bare basename or a full path from the vault root.
 - No `.md` at the vault root except the basenames in `root_allowlist`. Anything else there is debris — delete it, or file it where it belongs.
-- Write wikilinks in backticks when discussing them in prose. An inline-code wikilink is not parsed as a link; a live one in documentation is a real link to a note that does not exist.
+- Backtick a wikilink **only when writing about link syntax itself**. An inline-code wikilink is not parsed as a link, so a live one in documentation points at a note that does not exist — but the mirror error is worse in practice: backticking links that were meant to be followed renders them as code and silently disconnects the note. When in doubt, leave the link live.
 
 **What breaks.** Resolution is by basename across the whole vault, so a duplicate basename silently points a link at the wrong note — and it looks correct in both the editor and the rendered pane, because a resolved link gives no signal about *which* file it resolved to. An unresolved link is not an error either: clicking it creates the file, empty, at the vault root. That is the entire mechanism behind root debris. Every stray root `.md` is a link that was written wrong once and clicked once, and by the time it is noticed the note that spawned it is no longer obvious.
 

@@ -14,6 +14,8 @@ Report the vault root and which checks are enabled.
 
 Pick a basename **not** in `root_allowlist` and attempt to write it at the vault root with the Write tool, containing the text `test`.
 
+⚑ **Do not redirect it somewhere sensible.** If instructions tell you stray root files belong in the inbox, filing it there tests the instructions and not the hook. Force the root path.
+
 ## 3. Report honestly
 
 - **Refused** — quote the reason. Confirm the file does not exist. The guard is live.

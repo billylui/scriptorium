@@ -1,5 +1,6 @@
 ---
 type: decision
+created: {{date}}
 status: proposed
 date: {{date}}
 project: "[[{{topic_node}}]]"

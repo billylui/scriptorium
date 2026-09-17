@@ -1,5 +1,7 @@
 ---
 type: person
+status: draft
+created: {{date}}
 date: {{date}}
 tags: [person]
 relation: 

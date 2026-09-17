@@ -1,4 +1,6 @@
 ---
+type: reference
+created: {{date}}
 date: {{date}}
 tags: [project]
 status: active

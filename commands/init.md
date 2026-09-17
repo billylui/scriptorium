@@ -35,7 +35,7 @@ List top-level folders and count `.md` files. Propose values from what you find.
 
 One message, plain questions, each with your proposed answer:
 
-- **Which folders hold subject folders needing a landing note?** Usually the Projects and Areas folders. **Recommend leaving `folder_landing` off for now** — it refuses writes into any folder lacking a landing note, which is disruptive before the structure settles. `METHOD.md` says turn it on at about a month in.
+- **Which folders hold subject folders needing a landing note?** Usually the Projects and Areas folders. **If you scaffolded the structure, fill this in from what you created** — leaving it `[]` means the check does nothing even after they switch it on, which is a silent no-op they will not notice. **Recommend leaving `folder_landing` off for now** — it refuses writes into any folder lacking a landing note, which is disruptive before the structure settles. `METHOD.md` says turn it on at about a month in.
 - **Which files or sections do you write yourself, rather than the agent?** A daily-note reflection heading, a journal folder, first-person notes about people. Explain that leaving this empty **silently disables** both the do-not-overwrite rule and the provenance measurement.
 - **Which checks do you want on?** For a new vault, all except `folder_landing`. For an existing vault, warn that `hard_wrapped_prose` will refuse writes to notes following a different convention — offer to start it off and turn it on after they have seen what it catches.
 
@@ -82,16 +82,26 @@ If they have no preference, set ripgrep now so the laws work today, and tell the
 
 An inert guard and a working guard are indistinguishable until one says no.
 
-Pick a basename **not** in `root_allowlist` and try to write it at the vault root with the Write tool — for example `scriptorium-probe.md` containing `test`.
+Pick a basename **not** in `root_allowlist` and write it at the vault root with the Write tool — for example `scriptorium-probe.md` containing `test`.
+
+⚑ **Insist on the exact path, and do not let good behaviour substitute for the test.** If the vault's `CLAUDE.md` says stray root files belong in the inbox, you will helpfully file it there instead and the hook never fires — which proves the *instructions* work, not the guard. The write must be attempted at the root.
 
 - **Refused:** quote the refusal back so they see what one looks like. Confirm no file was created.
 - **Succeeded:** the guard is NOT running. Delete the file and say so plainly. Diagnose in order and report which failed: `claude plugin list` shows `scriptorium@scriptorium` **enabled**; `jq . .scriptorium.json` parses; `command -v jq python3` both resolve; the check is not off in `checks`.
 
-## 10. First note, so the vault is not empty
+## 10. If you create an index, do not link folders
+
+A root `index.md` is useful. **Write folder names as plain text or backticked paths, never as `[[wikilinks]]`.** A wikilink resolves only to a note basename, so `[[04-Areas]]` resolves to nothing and creates an empty file at the vault root the first time anyone clicks it — Law 1, produced by the setup that is supposed to prevent it.
+
+Link *notes* freely. Never link a folder.
+
+Also: **do not write a placeholder URL.** If you reference `METHOD.md`, link the file in the plugin or name it in text — an unresolved `https://` placeholder in a brand-new vault is the first broken thing they will find.
+
+## 11. First note, so the vault is not empty
 
 Create today's daily note from the template. If they scaffolded, offer to create one Area for something ongoing in their life, with its landing note — a worked example beats a description.
 
-## 11. Hand over
+## 12. Hand over
 
 Four or five lines: which checks are on, that `.scriptorium.json` changes behaviour with no reinstall, that `/scriptorium:verify` re-runs the proof, and where `METHOD.md` is for how to actually run the thing.
 

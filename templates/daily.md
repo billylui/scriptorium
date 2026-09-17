@@ -1,6 +1,7 @@
 ---
 type: daily
-date: {{date}}
+status: active
+created: {{date}}
 mood: 
 tags: [daily]
 ---

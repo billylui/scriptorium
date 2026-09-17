@@ -140,13 +140,59 @@ claude --channels plugin:telegram@claude-plugins-official
 
 Detach with `Ctrl-b d`; reattach with `tmux attach -t vault`. It survives a closed terminal, **not** a reboot.
 
-## Permissions, honestly
+## Running one always-on — the part that bites
 
-If Claude hits a permission prompt while you are away, the session **pauses until you answer**. Channels that support permission relay can forward the prompt to your chat.
+Everything below was found on a real always-on install. None of it is in the official docs.
 
-The alternative is `--dangerously-skip-permissions`, which makes unattended use work and means **an inbound message drives an agent with unsupervised access to your filesystem**. On your own machine, for your own vault, that is defensible. It should be a decision you make deliberately, not a flag you copy from a setup guide.
+### Disable the channel plugin at user scope, enable it only in the bot session
 
-This is also where the guard earns its place: with permission prompts off, the `PreToolUse` hook is the only thing still saying no.
+**A channel plugin enabled at user scope starts its server in every session you open** — including an ordinary `claude` in some unrelated folder. For Telegram that is actively destructive: the plugin SIGTERMs any previous poller on start, because Telegram permits exactly one `getUpdates` consumer per token. **A casual session in another directory silently steals the bot from your always-on one**, and nothing tells you.
+
+Install the plugin, then disable it at user scope and enable it only where you want it:
+
+```bash
+claude plugin disable telegram@claude-plugins-official
+```
+
+```bash
+claude --settings '{"enabledPlugins":{"telegram@claude-plugins-official":true}}'        --channels plugin:telegram@claude-plugins-official
+```
+
+Verified: `--channels` alone does **not** load a user-disabled plugin — no server spawns. With `--settings` it does. Ordinary sessions then never start it.
+
+### A failed channel server is cached and never retried
+
+If a channel server fails to start — port already bound, token missing — the failure is recorded in `~/.claude/mcp-needs-auth-cache.json` and **every later session skips starting it entirely**, with no new log and no attempt. It looks like the plugin is broken.
+
+```bash
+mv ~/.claude/mcp-needs-auth-cache.json ~/.claude/mcp-needs-auth-cache.json.bak
+```
+
+This is also why "give each bot its own state directory so other sessions fail fast" is the wrong fix: those deliberate failures poison the cache and then block the session you actually wanted.
+
+### Slash commands do not reach Claude Code
+
+The plugin intercepts its own `/start`, `/help` and `/status`; **everything else is forwarded as ordinary chat text.** `/clear`, `/compact` and the rest never execute — and the model may cheerfully *say* it cleared the session. If you need a fresh session from your phone, restart the process, do not trust a slash command.
+
+Skills still work when asked for in plain words.
+
+### Tell the agent to use the `reply` tool
+
+The model sometimes answers into the terminal instead of calling the channel's `reply` tool, and the answer never reaches your phone. Put the rule in the vault's `CLAUDE.md` explicitly: **every answer to a channel message goes through `reply`, with the inbound message's chat id.** That fixed it; without it the behaviour was intermittent.
+
+## Permissions — there is a middle option
+
+Three choices, not two.
+
+1. **Permission prompts on, no relay.** The session **stalls** waiting for an answer you cannot give from your phone.
+2. **Permission relay** *(Telegram plugin 0.0.7 and later)*. The prompt is forwarded to your allowlisted chat with Allow / Deny buttons. **This is the right default for most people** — unattended use works, and you still approve anything consequential.
+3. **`--dangerously-skip-permissions`.** Nothing asks. An inbound message drives an agent with unsupervised access to your filesystem. Defensible on your own machine for your own vault; it should be a decision you make deliberately, not a flag copied from a setup guide.
+
+Check your plugin version before assuming option 1 is your lot — relay landed quietly.
+
+**Anyone who can message through the channel can approve tool use in your session.** Allowlist only yourself unless you mean otherwise.
+
+This is also where the guard earns its place: with prompts off or relayed, the `PreToolUse` hook is the only thing still saying no without asking.
 
 ## When it does not work
 
@@ -157,5 +203,7 @@ This is also where the guard earns its place: with permission prompts off, the `
 | Bot receives empty messages (Discord) | Message Content Intent not enabled |
 | `authorization denied` (iMessage) | Full Disk Access not granted to the terminal |
 | Channel silently does not register | Plugin not on the approved allowlist, or your org has channels disabled |
-
-**Anyone who can message through the channel can approve tool use in your session** if permission relay is on. Allowlist only yourself unless you mean otherwise.
+| Bot stops responding after you opened Claude elsewhere | Another session stole the poller — see the user-scope section above |
+| Plugin shows `failed` forever, no new logs | Cached failure in `mcp-needs-auth-cache.json` |
+| Answers appear in the terminal, not your phone | Model skipped the `reply` tool |
+| `/clear` seems to do nothing | Slash commands are not forwarded |

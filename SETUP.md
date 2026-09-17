@@ -10,7 +10,21 @@
 brew install jq          # macOS; python3 already ships with the OS
 ```
 
-Claude Code must be installed and logged in. Obsidian is optional — the laws are about the markdown on disk, so any editor works.
+**Claude Code itself:**
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+claude auth login
+```
+
+Two things that cost people an hour:
+
+- **The Claude desktop app's login does not carry to the CLI.** They authenticate separately.
+- **If the login shell has no profile** — a fresh account on bash with no `~/.bash_profile` — nothing you install lands on `PATH` in a normal Terminal, and everything appears broken. Create one with Homebrew's `shellenv`, `~/.local/bin` and `~/.bun/bin`.
+
+**`claude auth login` must be run in a terminal on the machine itself.** An SSH session cannot read the login Keychain, so `claude auth status` will report logged-out over SSH even when it is fine locally. `claude plugin …` commands work over SSH regardless.
+
+Obsidian is optional — the laws are about the markdown on disk, so any editor works.
 
 ## Install
 
@@ -43,6 +57,20 @@ Open Claude Code **in your vault directory**, then run:
 It looks at your vault, proposes values, asks you three questions, writes `.scriptorium.json` at your vault root, offers to copy the templates, and then **makes the guard refuse a write in front of you** so you can see it working.
 
 That last step is the point. Skip it and you have no idea whether anything is protecting you.
+
+## Search — do this or two laws stay inert
+
+Two laws tell the agent to search the vault before answering. Both do nothing until `search_command` points at a real tool.
+
+**Anything works.** `ripgrep` is fine, already installed, and needs no setup — set `search_command` to an `rg` invocation with `{query}` where the term goes and you are done.
+
+**A semantic search tool** indexes meaning rather than words, which suits a vault you query in natural language. Budget for it honestly:
+
+- It may need Node even if its README offers a Bun install — a `#!/usr/bin/env node` shebang fails without it, and the native postinstall steps need Node too.
+- First run downloads models. Expect **1–2.5 GB** total across embedding, reranking and query expansion, and several minutes before the first query returns. A multilingual embedding model is at the top of that range.
+- **Your inbox gets indexed too.** Anything you drop there — a medical report, a bank statement — becomes searchable and gets sent to the model when read. Add an ignore rule if that is not what you want.
+
+Whatever you pick, **run it once and confirm it returns results** before relying on it.
 
 ## Check it any time
 

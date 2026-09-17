@@ -4,6 +4,21 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-17
+
+Everything here came from a real install on someone else's machine. Each item is a defect that reached a user.
+
+### Fixed
+- **Five of seven templates violated this repo's own `required_frontmatter`** — missing `status` and `created`, and `project.md` had no `type:` at all. Every note created from them broke Law 5 on write.
+- **The guard verification was vacuous.** Asked to write a stray root file, an agent following the vault's own instructions helpfully files it in the inbox instead, so the hook never fires and the test passes without proving anything. Both `init` and `verify` now insist on the root path.
+- **`CHANNELS.md` said a permission prompt stalls the session.** The Telegram plugin has relayed prompts to chat with Allow/Deny buttons since 0.0.7 — a middle option between stalling and turning permissions off entirely, and the right default for most people.
+- **The backtick rule was stated in a way that invited the opposite error.** Backticking links meant to be followed renders them as code and disconnects the note, which is worse and more common than the failure the rule was written for.
+
+### Added
+- `CHANNELS.md`: the always-on failure modes. A channel plugin enabled at user scope starts its server in **every** session, and Telegram kills the previous poller on start — so an ordinary `claude` in another folder silently steals the bot. Fix is to disable at user scope and enable per-session with `--settings`. Also: a failed channel server is cached in `mcp-needs-auth-cache.json` and never retried; slash commands are not forwarded over channels; and the agent must be told to use the `reply` tool or answers land in the terminal.
+- `SETUP.md`: the Claude Code install command, that the desktop app's login does not carry to the CLI, that a shell with no profile leaves everything off `PATH`, that SSH cannot read the login Keychain, and an honest model-download budget for semantic search — including that the inbox gets indexed.
+- `init`: never generate folder wikilinks or placeholder URLs into an index, and populate `landing_note_parents` when scaffolding rather than leaving a check that silently does nothing.
+
 ## [0.4.0] — 2026-09-17
 
 ### Added
