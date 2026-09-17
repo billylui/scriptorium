@@ -4,6 +4,11 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-09-17
+
+### Added
+- **`CHANNELS.md`: question menus hang an always-on Telegram session.** With the official Telegram plugin, a multiple-choice follow-up (`AskUserQuestion`) or plan-mode approval renders only in the terminal, so the chat shows nothing and the session waits indefinitely. Neither permission relay nor `--dangerously-skip-permissions` covers it. Documents `--disallowedTools AskUserQuestion EnterPlanMode ExitPlanMode` (verified to remove the tools), the `CLAUDE.md` line that sends questions through `reply` instead, and why an edited loop script needs the tmux session restarted. Tmux bridges such as ccbot already forward questions and are unaffected.
+
 ## [0.5.2] — 2026-09-17
 
 ### Fixed

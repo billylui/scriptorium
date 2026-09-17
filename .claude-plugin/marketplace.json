@@ -9,7 +9,7 @@
       "name": "scriptorium",
       "source": "./",
       "description": "Fail-closed guardrails for agent-written Obsidian vaults.",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "author": {
         "name": "billylui"
       }

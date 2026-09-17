@@ -180,6 +180,27 @@ Skills still work when asked for in plain words.
 
 The model sometimes answers into the terminal instead of calling the channel's `reply` tool, and the answer never reaches your phone. Put the rule in the vault's `CLAUDE.md` explicitly: **every answer to a channel message goes through `reply`, with the inbound message's chat id.** That fixed it; without it the behaviour was intermittent.
 
+### Question menus hang the session with nothing on your phone
+
+*Official Telegram plugin. Tmux bridges such as ccbot already carry the question into the chat and do not need this.*
+
+When the model asks a multiple-choice follow-up (the `AskUserQuestion` tool) or enters plan mode, the menu renders **only in the terminal**. The channel does not forward it, the chat shows nothing, and the session waits indefinitely. On the install this was found on, one question sat unanswered for 75 minutes until someone reached the terminal. Permission relay does not cover it, and `--dangerously-skip-permissions` does not either: these are questions, not permission prompts. Claude Code disables them itself only in `-p` mode ([anthropics/claude-code#70294](https://github.com/anthropics/claude-code/issues/70294)).
+
+Take the tools away from the always-on session:
+
+```bash
+claude --dangerously-skip-permissions \
+  --settings '{"enabledPlugins":{"telegram@claude-plugins-official":true}}' \
+  --channels plugin:telegram@claude-plugins-official \
+  --disallowedTools AskUserQuestion EnterPlanMode ExitPlanMode
+```
+
+Verified: with the flag, the three tools are absent from the session's tool list; without it, all three are present. Drop `--dangerously-skip-permissions` if you use permission relay instead. The fix does not depend on it.
+
+Then tell the model how to ask instead, next to the `reply` rule in the vault's `CLAUDE.md`: **when you need a choice or clarification, send the question as an ordinary message with the `reply` tool (numbered options are fine), then stop and wait for the next message.** Without that line the model knows the tools are gone but not where the question should go.
+
+**If a loop script relaunches `claude`, restarting `claude` does not pick up an edited command.** Bash has already read the loop, so it keeps starting the old command line. End the whole tmux session and start it again, and check the running process with `pgrep -fl claude`.
+
 ## Permissions — there is a middle option
 
 Three choices, not two.
@@ -206,4 +227,5 @@ This is also where the guard earns its place: with prompts off or relayed, the `
 | Bot stops responding after you opened Claude elsewhere | Another session stole the poller — see the user-scope section above |
 | Plugin shows `failed` forever, no new logs | Cached failure in `mcp-needs-auth-cache.json` |
 | Answers appear in the terminal, not your phone | Model skipped the `reply` tool |
+| Bot goes silent mid-task, terminal shows a question or plan menu | Question menus are not forwarded (Telegram); see the question-menu section above |
 | `/clear` seems to do nothing | Slash commands are not forwarded |
