@@ -146,6 +146,7 @@ def wrapped(cur, ns):
 
 lines = sys.stdin.read().split("\n")
 fence = False
+comment = False
 fm = bool(lines) and lines[0].strip() == "---"
 hits = []
 for i, line in enumerate(lines):
@@ -153,6 +154,15 @@ for i, line in enumerate(lines):
     if fm:
         if i and s == "---":
             fm = False
+        continue
+    # Multi-line HTML comments: only the opening line matches the block regex,
+    # so without state every continuation line looks like wrapped prose.
+    if comment:
+        if "-->" in s:
+            comment = False
+        continue
+    if s.startswith("<!--") and "-->" not in s:
+        comment = True
         continue
     if s.startswith("```") or s.startswith("~~~"):
         fence = not fence

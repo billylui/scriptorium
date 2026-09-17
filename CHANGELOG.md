@@ -4,6 +4,11 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-09-17
+
+### Fixed
+- **The hard-wrap check false-positived on multi-line HTML comments.** It tracked fenced code blocks but not comment state, so only a comment's opening line was recognised and every continuation line read as wrapped prose. Found by checking the repo's own files against the rule they publish — the new `CLAUDE.md` template failed it. Regression-tested with a comment that must pass and two genuine wraps that must still be refused.
+
 ## [0.5.0] — 2026-09-17
 
 Everything here came from a real install on someone else's machine. Each item is a defect that reached a user.
