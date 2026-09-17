@@ -180,6 +180,28 @@ Skills still work when asked for in plain words.
 
 The model sometimes answers into the terminal instead of calling the channel's `reply` tool, and the answer never reaches your phone. Put the rule in the vault's `CLAUDE.md` explicitly: **every answer to a channel message goes through `reply`, with the inbound message's chat id.** That fixed it; without it the behaviour was intermittent.
 
+### Question menus hang the session with nothing on your phone
+
+*Found and verified with the official Telegram plugin. Discord and iMessage use the same channel mechanism but were not tested. Tmux bridges such as ccbot already carry the question into the chat and do not need this.*
+
+When the model asks a multiple-choice follow-up (the `AskUserQuestion` tool) or enters plan mode, the menu renders **only in the terminal**. The channel does not forward it, the chat shows nothing, and the session waits indefinitely. On the install this was found on, one question sat unanswered for 75 minutes until someone reached the terminal, and `--dangerously-skip-permissions` did not prevent it. Permission relay is documented for tool-use approvals such as `Bash`, `Write` and `Edit`, not for these menus. Claude Code's docs say `-p` mode disables them; an interactive always-on session has to do it explicitly ([anthropics/claude-code#70294](https://github.com/anthropics/claude-code/issues/70294)).
+
+Take the tools away from the always-on session, keeping whatever permission choice you made below:
+
+```bash
+claude --settings '{"enabledPlugins":{"telegram@claude-plugins-official":true}}' \
+  --channels plugin:telegram@claude-plugins-official \
+  --disallowedTools AskUserQuestion EnterPlanMode ExitPlanMode
+```
+
+Keep `--disallowedTools` last: it takes a list, so an option placed after its tool names is read as another tool name.
+
+Verified on Claude Code 2.1.274: with the flag, the three tools are absent from the session's tool list; without it, all three are present. **Do not combine this with a session that starts in plan mode** (`defaultMode: "plan"`): with `ExitPlanMode` removed it can never leave.
+
+Then tell the model how to ask instead, next to the `reply` rule in the vault's `CLAUDE.md`: **when you need a choice or clarification, send the question as an ordinary message with the `reply` tool (numbered options are fine), then stop and wait for the next message.** This gives the model somewhere to put the question once the menu tool is gone.
+
+**If you wrap `claude` in a restart loop, restarting `claude` does not pick up an edited command.** Bash has already read the loop, so it keeps starting the old command line. Stop the loop itself (end its tmux session, or Ctrl-C it in its pane) and start the script again. Confirm with `ps -eo args | grep -- '--disallowedTools'`, which shows the running command line on both macOS and Linux.
+
 ## Permissions — there is a middle option
 
 Three choices, not two.
@@ -206,4 +228,5 @@ This is also where the guard earns its place: with prompts off or relayed, the `
 | Bot stops responding after you opened Claude elsewhere | Another session stole the poller — see the user-scope section above |
 | Plugin shows `failed` forever, no new logs | Cached failure in `mcp-needs-auth-cache.json` |
 | Answers appear in the terminal, not your phone | Model skipped the `reply` tool |
+| Bot goes silent mid-task and never answers | Often a question or plan menu waiting in the terminal, which is not forwarded; see the question-menu section above |
 | `/clear` seems to do nothing | Slash commands are not forwarded |
