@@ -35,8 +35,9 @@ if [ "$1" = "--loop" ]; then
   while [ -e "$BUSY" ]; do
     last=$(stat -f %m "$BUSY" 2>/dev/null) || break
     [ $(( $(date +%s) - last )) -ge "$IDLE" ] && { rm -f "$BUSY"; break; }
-    # fd 9 is the lock: children must not inherit it, or one outliving a killed loop would hold it
-    send 9>&-
+    # fd 9 is the lock: children must not inherit it, or one outliving a killed loop would hold it.
+    # A subshell, not "send 9>&-": on a function call bash saves fd 9 to another fd that children inherit.
+    ( send ) 9>&-
     sleep "$INTERVAL" 9>&-
   done
   exit 0
@@ -46,12 +47,22 @@ input=$(cat)
 event=""
 [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([A-Za-z]+)\" ]] && event=${BASH_REMATCH[1]}
 
-# A reply may be the answer or an interim note; either way the next tool call starts it again.
+field() { [[ $input =~ \"$1\"[[:space:]]*:[[:space:]]*\"([A-Za-z_]+)\" ]] && echo "${BASH_REMATCH[1]}"; }
 case "$event" in
-  Stop|StopFailure|Notification|SessionStart) rm -f "$BUSY" 2>/dev/null; exit 0 ;;
+  Stop|StopFailure) rm -f "$BUSY" 2>/dev/null; exit 0 ;;
+  # compaction reports SessionStart mid-turn while the work goes on; only a real new session ends it
+  SessionStart) [ "$(field source)" = compact ] || rm -f "$BUSY" 2>/dev/null; exit 0 ;;
+  # only notifications that mean the bot is waiting on the person; others (auth, an answered
+  # elicitation) arrive while it keeps working. No type at all: an older version, so stop.
+  Notification)
+    case "$(field notification_type)" in
+      ""|permission_prompt|idle_prompt|worker_permission_prompt|elicitation_dialog) rm -f "$BUSY" 2>/dev/null ;;
+    esac
+    exit 0 ;;
   UserPromptSubmit|PreToolUse) ;;
   *) exit 0 ;;
 esac
+# A reply may be the answer or an interim note; either way the next tool call starts it again.
 if [[ $input =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]]; then
   rm -f "$BUSY" 2>/dev/null
   exit 0
