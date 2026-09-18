@@ -1,11 +1,13 @@
 #!/bin/bash
-# Hook for an always-on Telegram vault bot, on UserPromptSubmit, PreToolUse and Stop. Install it only in
-# the bot session's --settings. The plugin sends Telegram's "typing…" once per message and Telegram clears it
-# after ~5s. Renewing it only on tool calls left the chat dark whenever the model thought or wrote between
-# tools (measured on real turns: visible 12-75% of the time). So a turn start or a tool call keeps a
-# detached loop renewing it every few seconds; the final reply or the end of the turn stops it, and a loop
-# nothing has refreshed for IDLE seconds stops itself, in case a Stop is ever missed.
-# It must never block or slow a tool: the hook always exits 0 and prints nothing. macOS (plutil, stat -f).
+# Hook for an always-on Telegram vault bot. Install it only in the bot session's --settings, on
+# UserPromptSubmit, PreToolUse, Stop, StopFailure, Notification and SessionStart.
+# The plugin sends Telegram's "typing…" once per message and Telegram clears it after ~5s. Renewing it
+# only on tool calls left the chat dark whenever the model thought or wrote between tools (measured on
+# real turns: visible 12-75% of the time). So a turn start or a tool call keeps a detached loop renewing
+# it every few seconds. Anything that means the bot is no longer working stops it: a reply, the end of
+# the turn (Stop, or StopFailure when an API error ended it), a Notification (a permission prompt, or
+# waiting idle for the person), or a new session. A loop nothing has refreshed for IDLE seconds stops
+# itself. The hook always exits 0 at once and prints nothing. macOS (plutil, stat -f, perl).
 STATE="${TELEGRAM_STATE_DIR:-$HOME/.claude/channels/telegram}"
 API="${VAULT_BOT_TG_API:-https://api.telegram.org}"
 INTERVAL="${VAULT_BOT_TYPING_INTERVAL:-4}"
@@ -14,7 +16,7 @@ IDLE="${VAULT_BOT_TYPING_IDLE:-600}"
 RUN="${VAULT_BOT_TYPING_RUN:-${TMPDIR:-$HOME/.cache}}"
 BOT="$(basename "$STATE")-$(printf %s "$STATE" | cksum | cut -d' ' -f1)"
 BUSY="$RUN/vault-bot-typing-$BOT.busy"  # exists while the bot works; its mtime is the last refresh
-PIDF="$RUN/vault-bot-typing-$BOT.pid"   # the running loop, if any
+LOCK="$RUN/vault-bot-typing-$BOT.lock"  # held by the running loop for its whole life
 
 send() {
   local token chat i=0
@@ -30,20 +32,13 @@ send() {
 }
 
 if [ "$1" = "--loop" ]; then
-  # One loop per bot: claim the pid file atomically, or leave if a live loop already holds it.
-  if ! (set -C; echo $$ > "$PIDF") 2>/dev/null; then
-    pid=$(cat "$PIDF" 2>/dev/null)
-    [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && exit 0
-    rm -f "$PIDF"
-    (set -C; echo $$ > "$PIDF") 2>/dev/null || exit 0
-  fi
   while [ -e "$BUSY" ]; do
     last=$(stat -f %m "$BUSY" 2>/dev/null) || break
     [ $(( $(date +%s) - last )) -ge "$IDLE" ] && { rm -f "$BUSY"; break; }
-    send
-    sleep "$INTERVAL"
+    # fd 9 is the lock: children must not inherit it, or one outliving a killed loop would hold it
+    send 9>&-
+    sleep "$INTERVAL" 9>&-
   done
-  [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
   exit 0
 fi
 
@@ -51,19 +46,30 @@ input=$(cat)
 event=""
 [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([A-Za-z]+)\" ]] && event=${BASH_REMATCH[1]}
 
-# The final answer goes out through reply, and the turn ends with Stop: "typing…" after either would
-# look like more is coming.
-if [ "$event" = Stop ] || [[ $input =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]]; then
+# A reply may be the answer or an interim note; either way the next tool call starts it again.
+case "$event" in
+  Stop|StopFailure|Notification|SessionStart) rm -f "$BUSY" 2>/dev/null; exit 0 ;;
+  UserPromptSubmit|PreToolUse) ;;
+  *) exit 0 ;;
+esac
+if [[ $input =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]]; then
   rm -f "$BUSY" 2>/dev/null
   exit 0
 fi
-case "$event" in UserPromptSubmit|PreToolUse) ;; *) exit 0 ;; esac
 [ -r "$STATE/.env" ] || exit 0
 
 mkdir -p "$RUN" 2>/dev/null
 touch "$BUSY" 2>/dev/null || exit 0
-pid=$(cat "$PIDF" 2>/dev/null)
-[[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && exit 0
-# Detached, with every stream closed, so Claude Code does not wait for it.
-nohup "$0" --loop "$BUSY" </dev/null >/dev/null 2>&1 &
+# Start a loop unless one is running. The loop holds an exclusive lock on LOCK for its whole life:
+# the kernel releases it however the loop dies, so a crash leaves nothing stale and two loops can
+# never run at once; a starter that cannot take the lock just exits. setsid gives the loop its own
+# session, so nothing that kills the hook's process group takes it down.
+nohup /usr/bin/perl -MFcntl=:flock -MPOSIX=setsid,dup2 -e '
+  setsid();
+  open(my $l, ">>", $ARGV[0]) or exit 0;
+  flock($l, LOCK_EX | LOCK_NB) or exit 0;
+  dup2(fileno($l), 9) or exit 0;  # the loop keeps the lock on fd 9 (dup2 clears close-on-exec)
+  close($l);
+  exec("/bin/bash", $ARGV[1], "--loop", $ARGV[2]) or exit 0;
+' "$LOCK" "$0" "$BUSY" </dev/null >/dev/null 2>&1 &
 exit 0

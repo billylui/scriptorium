@@ -130,13 +130,13 @@ def finished(r):
 
 
 def allowlist(tg):
+    """(people, groups) the bot may send to. Never raises: a missing or odd file means none."""
     try:
         with open(os.path.join(tg, "access.json")) as f:
             access = json.load(f)
-        # people first, so the default chat is the first person; then the groups the bot answers in
-        return [str(c) for c in access.get("allowFrom", [])] + [str(g) for g in access.get("groups", {})]
-    except (OSError, ValueError):
-        return []
+        return [str(c) for c in access.get("allowFrom") or []], [str(g) for g in access.get("groups") or {}]
+    except Exception:
+        return [], []
 
 
 def send(tg, chat, text):
@@ -177,13 +177,14 @@ def cmd_add(a):
         fail("give exactly one of --at, --in, --daily")
     if a.until and a.daily is None:
         fail("--until only applies to --daily")
-    chats = allowlist(TG)
-    if a.chat is not None and a.chat not in chats:
+    people, groups = allowlist(TG)
+    if a.chat is not None and a.chat not in people + groups:
         fail("chat %s is not in the Telegram allowlist" % a.chat)
-    if not chats:
-        fail("no chat in the Telegram allowlist to send to")
+    if a.chat is None and not people:
+        # a personal reminder must never land in a group by default
+        fail("no person in the Telegram allowlist; pass --chat with the chat to send to")
     # remember the bot as well as the chat: the job that sends it may run with another bot's environment
-    r = {"id": uuid.uuid4().hex[:6], "text": a.text.strip(), "chat": a.chat or chats[0], "tg": os.path.abspath(TG),
+    r = {"id": uuid.uuid4().hex[:6], "text": a.text.strip(), "chat": a.chat or people[0], "tg": os.path.abspath(TG),
          "created": t.strftime(FMT), "last": None}
     if a.in_ is not None:
         m = re.fullmatch(r"(\d+)([mh])", a.in_)
@@ -278,9 +279,9 @@ def cmd_send_due(a):
     retry = {}
     for r, due in claims:
         tg = r.get("tg") or TG  # entries made before the bot was recorded use this job's bot
-        chats = allowlist(tg)
+        people = allowlist(tg)[0]
         try:
-            send(tg, r.get("chat") or (chats[0] if chats else None), message(r, due))
+            send(tg, r.get("chat") or (people[0] if people else None), message(r, due))
             print("%s sent %s" % (stamp, r["id"]))
         except Permanent as e:
             print("%s gave up on %s: Telegram refused it (%s)" % (stamp, r["id"], e), file=sys.stderr)

@@ -7,9 +7,10 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 ## [0.6.1] — 2026-09-18
 
 ### Fixed
-- **`vault-bot-typing` let "typing…" lapse whenever the model thought or wrote between tool calls.** It renewed the indicator only on a tool call, and on real turns that left it visible for 12 to 75 percent of the time. It now runs on `UserPromptSubmit`, `PreToolUse` and `Stop`: a detached loop renews the indicator every four seconds while the bot works and stops at the final `reply` or the end of the turn, or by itself after ten minutes with no refresh. Register all three events in the bot's `--settings`.
+- **`vault-bot-typing` let "typing…" lapse whenever the model thought or wrote between tool calls.** It renewed the indicator only on a tool call, and on real turns that left it visible for 12 to 75 percent of the time. It now keeps a detached loop renewing the indicator every four seconds while the bot works, started by `UserPromptSubmit` and `PreToolUse` and stopped by a `reply`, `Stop`, `StopFailure` (an API error ended the turn), `Notification` (a permission prompt or waiting idle) or `SessionStart`, or by itself after ten minutes with no refresh. One loop per bot, held by a lock the system releases however the loop dies. Register all six events in the bot's `--settings` and restart it.
 - **`vault-remind --in` could fire up to a minute after the time it printed.** It now counts from the start of the minute.
-- **`vault-remind --chat` refused allowlisted group chats,** so a reminder asked for in a group failed. Groups in `access.json` are now accepted.
+- **`vault-remind --chat` refused allowlisted group chats,** so a reminder asked for in a group failed. Groups in `access.json` are now accepted; the default chat is still only ever a person, and with no person on the allowlist `--chat` is required.
+- **`vault-remind` lost due reminders when `access.json` held `null` for a list.** The allowlist is now read defensively.
 
 ## [0.6.0] — 2026-09-18
 

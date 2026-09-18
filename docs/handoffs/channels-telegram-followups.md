@@ -11,7 +11,7 @@ The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-r
 
 ## 1. The scripts' tests are not in the repository
 
-**Problem:** each script was written test-first, with a fake Telegram server (26 tests for `vault-remind`, 16 for `vault-bot-watchdog`, 10 for `vault-bot-typing`), but the repo keeps no test suite, so the tests were not committed. The next change to any of these scripts has no regression net.
+**Problem:** each script was written test-first, with a fake Telegram server (36 tests for `vault-remind`, 18 for `vault-bot-watchdog`, 16 for `vault-bot-typing`), but the repo keeps no test suite, so the tests were not committed. The next change to any of these scripts has no regression net.
 
 **Why it matters:** the review found its defects exactly where the tests were thin (one chat, one bot, unbroken checks). Without the suites, those cases regress silently.
 
@@ -42,7 +42,7 @@ Both review seats confirmed every Critical and Important fix at `165b433` and fo
 - **`--at` around clock changes.** In the repeated fall-back hour, an `--at` time is resolved to its first occurrence, so one set during the second occurrence fires at once with a false "late" note; in the spring-forward gap, `--at 02:30` fires at 03:30. Only in zones with daylight saving.
 - **Hand-edited `reminders.json` with bad values still ends in a traceback** (`"at": "tomorrow"`, `"daily": [8]`, `"created": "yesterday"`, `"until": 5`, `"at_ts": "soon"`), and every reminder pauses until it is fixed. The structural check does not validate values.
 - **Two tests do not prove what they are named for:** the unwritable-state test stops at the run-lock open instead of the failed claim save (create `.send-lock` before making the directory read-only), and the overlapping-failed-runs test does not force the interleaving that lost reminders (run B must fail and release before run A).
-- **Older, not introduced by PR #4:** `vault-bot-watchdog` crashes writing the log line when a failing restart command prints non-UTF-8 output (the cooldown is already saved); `vault-bot-typing` is silenced for good by a stamp of digits too large for a 64-bit integer (only a corrupted stamp).
+- **Older, not introduced by PR #4:** `vault-bot-watchdog` crashes writing the log line when a failing restart command prints non-UTF-8 output (the cooldown is already saved).
 
 ## Re-verify ground truth before acting
 
