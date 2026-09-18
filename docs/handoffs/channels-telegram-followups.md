@@ -44,6 +44,15 @@ Both review seats confirmed every Critical and Important fix at `165b433` and fo
 - **Two tests do not prove what they are named for:** the unwritable-state test stops at the run-lock open instead of the failed claim save (create `.send-lock` before making the directory read-only), and the overlapping-failed-runs test does not force the interleaving that lost reminders (run B must fail and release before run A).
 - **Older, not introduced by PR #4:** `vault-bot-watchdog` crashes writing the log line when a failing restart command prints non-UTF-8 output (the cooldown is already saved).
 
+## 5. Minor findings left open by the final review of 0.6.1 (`vault-bot-typing`)
+
+Both review seats confirmed every fix at `e0bffb1` and found nothing Critical or Important. Deferred rather than start another round:
+
+- **`agent_needs_input` is not treated as waiting.** Claude Code uses it for dialogs such as "Teammate setup needs your input"; a bot session blocked on one would show "typing…" until the ten-minute limit. From reading the binary, not a live dialog. More generally, the hook lists the notification types that stop typing, so a waiting type added by a future Claude Code version would keep it on; decide whether to invert the list (stop on everything except known work-continues types).
+- **Docs name fewer stopping notifications than the code.** `CHANNELS.md` and the 0.6.1 CHANGELOG entry say "a permission prompt, or sitting idle"; the code also stops on `elicitation_dialog`, `elicitation_url_dialog`, `worker_permission_prompt` and untyped notifications.
+- **The script's header comment is stale:** it still says any `Notification` and any new session stop it, without the compaction and work-continues exceptions.
+- **Test gaps:** the suite checks only three of the stopping notification types, and `SessionStart` only for `startup` and `compact`, so a typo in `idle_prompt`, `worker_permission_prompt`, `elicitation_dialog` or the `resume`/`clear` sources would pass.
+
 ## Re-verify ground truth before acting
 
 ```bash
