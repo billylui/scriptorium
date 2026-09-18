@@ -194,13 +194,70 @@ claude --settings '{"enabledPlugins":{"telegram@claude-plugins-official":true}}'
   --disallowedTools AskUserQuestion EnterPlanMode ExitPlanMode
 ```
 
-Keep `--disallowedTools` last: it takes a list, so an option placed after its tool names is read as another tool name.
+Keep `--disallowedTools` last: it takes a list, so an option placed after its tool names is read as another tool name. The sections below add more tools to it.
 
 Verified on Claude Code 2.1.274: with the flag, the three tools are absent from the session's tool list; without it, all three are present. **Do not combine this with a session that starts in plan mode** (`defaultMode: "plan"`): with `ExitPlanMode` removed it can never leave.
 
 Then tell the model how to ask instead, next to the `reply` rule in the vault's `CLAUDE.md`: **when you need a choice or clarification, send the question as an ordinary message with the `reply` tool (numbered options are fine), then stop and wait for the next message.** This gives the model somewhere to put the question once the menu tool is gone.
 
-**If you wrap `claude` in a restart loop, restarting `claude` does not pick up an edited command.** Bash has already read the loop, so it keeps starting the old command line. Stop the loop itself (end its tmux session, or Ctrl-C it in its pane) and start the script again. Confirm with `ps -eo args | grep -- '--disallowedTools'`, which shows the running command line on both macOS and Linux.
+**If you wrap `claude` in a restart loop, restarting `claude` does not pick up an edited command.** Bash has already read the loop, so it keeps starting the old command line. Stop the loop itself (end its tmux session, or Ctrl-C it in its pane) and start the script again. Confirm with `ps -eo args | grep -- '--disallowedTools'`, which shows the running command line on both macOS and Linux. To avoid this next time, have the loop call its own script for each start (`"$0" run`, with the `claude` command in a `run` branch), so every restart reads the file afresh.
+
+### The chat goes quiet while it works
+
+*Found with the official Telegram plugin 0.0.7. A tmux bridge such as ccbot streams the whole session and does not have this problem.*
+
+The plugin sends Telegram's "typing…" indicator once, when a message arrives, and Telegram clears it after about five seconds. After that the chat shows nothing until the model sends something, so a task that takes three minutes looks exactly like a session that has died. Three layers, cheapest first. None of them costs accuracy.
+
+**1. Acknowledge on receipt.** The plugin can react to each message the moment it receives it:
+
+```
+/telegram:access set ackReaction 👀
+```
+
+The plugin re-reads its access file on every message, so this applies without a restart. If you edit `access.json` by hand instead, write it atomically: a file the plugin cannot parse is moved aside and replaced with defaults, which puts the bot back into pairing mode.
+
+**2. Ask for progress messages.** The plugin has an `edit_message` tool for interim updates, but the model uses it only when told to, and a general "acknowledge long work first" line was not enough: on the install this was found on, the model made 47 tool calls before its first reply. Make the rule concrete, next to the `reply` rule in the vault's `CLAUDE.md`: **for anything bigger than a quick lookup, send a one-line `reply` saying what you are about to do before the first tool call, update that same message with `edit_message` at milestones, and send the final answer as a new `reply`, because edits do not notify the phone.**
+
+**3. Keep "typing…" alive.** [`channels/telegram/vault-bot-typing`](channels/telegram/vault-bot-typing) is a `PreToolUse` hook that renews the indicator on each tool call, at most every four seconds. It sends in the background and always exits 0, so it never slows or blocks a tool, and it costs no tokens because the model is not involved. It lapses during long stretches of thinking with no tool calls. It reads the token from the plugin's `.env` and sends to every chat in the allowlist, normally just you; it uses macOS `plutil` to read the allowlist.
+
+Register it in the bot session's `--settings`, **not** in the vault's `.claude/settings.json`. There it would run in every session opened in the vault, and your phone would show the bot typing while you work at your desk:
+
+```bash
+claude --settings '{"enabledPlugins":{"telegram@claude-plugins-official":true},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"$HOME/.local/bin/vault-bot-typing"}]}]}}' \
+  --channels plugin:telegram@claude-plugins-official \
+  --disallowedTools AskUserQuestion EnterPlanMode ExitPlanMode
+```
+
+### A slow reply is not always a slow model
+
+A reply reported as taking fourteen minutes turned out to have taken three and a half. The messages had waited at Telegram for 11 to 35 minutes while the session sat idle and the machine was awake, then reached the plugin together in one batch. The window coincided with a network change on the machine's VPN. Nothing errored and nothing recovered on its own: the plugin's long poll had quietly stopped receiving.
+
+**Tell delivery from thinking before tuning anything.** Each inbound `<channel>` tag carries a `ts` attribute, the time Telegram received the message. The plugin's MCP log records the moment it handed the message to the session, as a `notifications/claude/channel` line; on macOS the log is under `~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-plugin-telegram-telegram/`. A gap between the two is delivery; a gap after the log line is the model. Lowering the effort or switching to a smaller model does nothing for the first.
+
+[`channels/telegram/vault-bot-watchdog`](channels/telegram/vault-bot-watchdog) restarts the bot when Telegram is holding messages the plugin has stopped fetching. Run it every minute with `VAULT_WATCHDOG_RESTART` set to the shell command that restarts your bot session; under a restart loop, ending the `claude` process is enough. It asks Telegram's `getWebhookInfo` for `pending_update_count`. A healthy poller drains that within seconds, even while the model is busy with a long task, so updates still pending two minutes later mean the poll has stalled. It then restarts the bot and waits ten minutes before it may restart again. Telegram keeps undelivered messages, so a restart loses nothing. If Telegram cannot be reached at all it does nothing, because a restart cannot fix the network and it cannot tell an outage from a stall. It logs only changes, not every check. `getWebhookInfo` does not compete with the plugin: Telegram allows one `getUpdates` consumer per token, and this is not one.
+
+### Reminders set from chat are lost on every restart
+
+Ask the bot to remind you of something and the model reaches for Claude Code's own scheduler, `CronCreate`. Its tool description says the jobs live only in the session: the `durable` flag "has no effect", recurring jobs expire after seven days, and jobs fire only while the session is idle. An always-on bot restarts — on a schedule, after a crash, whenever you ask for a fresh session — and every reminder it set is gone without a word.
+
+[`channels/telegram/vault-remind`](channels/telegram/vault-remind) keeps reminders in a file and sends them straight to Telegram with the bot's own token. No Claude session is involved when they fire:
+
+```bash
+vault-remind add --in 13h --text "Take your evening pill"
+vault-remind add --at "2026-10-01 09:00" --text "Call the dentist"
+vault-remind add --daily 08:00,20:00 --until 2026-10-31 --text "Stretch"
+vault-remind list
+vault-remind cancel <id>
+```
+
+Run `vault-remind send-due` every minute: a LaunchAgent with `StartInterval` 60 on macOS, or cron. A reminder counts as sent only once Telegram accepts it, so an outage delays it rather than losing it. One that goes out more than ten minutes late says when it was due, and a daily reminder that missed several days sends one catch-up, not a backlog. Times are the machine's local time. It needs Python 3.9 and nothing outside the standard library. It still depends on the machine being on and online, so anything you cannot afford to miss belongs in your phone's own alarms too.
+
+Then take the scheduler away from the bot, and tell it where reminders go:
+
+- Add `CronCreate CronDelete CronList` to the bot's `--disallowedTools`.
+- In the vault's `CLAUDE.md`: **reminders go through `vault-remind` with the Bash tool, never Claude's scheduler. Write the text as the message to receive. When the timing is relative to something already done ("13 hours after the dose I took at 07:51"), count from that moment, not from when the message arrived. Reply with the exact time the command printed.**
+
+Verified on the install this was found on: asked from Telegram for a reminder in two minutes, the model called `vault-remind add --in 2m`, replied with the time it printed, and the reminder arrived from the scheduled job.
 
 ## Permissions — there is a middle option
 
@@ -229,4 +286,7 @@ This is also where the guard earns its place: with prompts off or relayed, the `
 | Plugin shows `failed` forever, no new logs | Cached failure in `mcp-needs-auth-cache.json` |
 | Answers appear in the terminal, not your phone | Model skipped the `reply` tool |
 | Bot goes silent mid-task and never answers | Often a question or plan menu waiting in the terminal, which is not forwarded; see the question-menu section above |
+| Chat shows nothing for minutes, then the answer | Only one "typing…" is sent per message; see the section on the chat going quiet |
+| Answer arrives many minutes late, though the session was idle | Messages held at Telegram, not a slow model; see the section on slow replies |
+| A reminder the bot confirmed never arrived | Set with Claude's session-only scheduler and lost at a restart; see the reminders section |
 | `/clear` seems to do nothing | Slash commands are not forwarded |

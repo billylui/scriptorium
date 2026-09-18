@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+"""Restarts the Telegram vault bot when Telegram is holding messages it has stopped fetching.
+
+The channel plugin long-polls Telegram. If that poll silently stalls (seen after a network
+change: messages sat undelivered for 35 minutes while the session was idle), nothing errors
+and nothing recovers. Telegram's getWebhookInfo reports pending_update_count, the updates
+waiting to be fetched; a healthy poller drains it within seconds, even while Claude is busy.
+
+Run it every minute (launchd or cron) with VAULT_WATCHDOG_RESTART set to the shell command
+that restarts your bot session. If updates stay pending for STUCK seconds, it restarts the bot
+(Telegram keeps undelivered messages, so nothing is lost), then waits COOLDOWN before it may
+restart again. If Telegram itself is unreachable it does nothing: a restart cannot fix the
+network, and it cannot tell a stall from an outage. It logs only changes, not every check.
+"""
+import json, os, subprocess, time
+from datetime import datetime
+from urllib import request
+
+HOME = os.path.expanduser("~")
+TG = os.environ.get("TELEGRAM_STATE_DIR", os.path.join(HOME, ".claude/channels/telegram"))
+API = os.environ.get("VAULT_BOT_TG_API", "https://api.telegram.org")
+STATE = os.environ.get("VAULT_WATCHDOG_STATE", os.path.join(HOME, ".local/share/vault-bot-watchdog.json"))
+RESTART = os.environ.get("VAULT_WATCHDOG_RESTART")  # shell command that restarts the bot session
+STUCK, COOLDOWN = 120, 600
+
+
+def log(now, msg):
+    print("%s watchdog: %s" % (datetime.fromtimestamp(now).strftime("%F %T"), msg), flush=True)
+
+
+def main():
+    now = float(os.environ.get("VAULT_WATCHDOG_NOW") or time.time())  # fixed clock for tests only
+    try:
+        token = next(l.split("=", 1)[1].strip() for l in open(os.path.join(TG, ".env")) if l.startswith("TELEGRAM_BOT_TOKEN="))
+    except (OSError, StopIteration):
+        return
+    try:
+        st = json.load(open(STATE))
+    except (OSError, ValueError):
+        st = {}
+
+    try:
+        with request.urlopen(API + "/bot" + token + "/getWebhookInfo", timeout=15) as resp:
+            pending = int(json.load(resp)["result"]["pending_update_count"])
+    except Exception as e:
+        if not st.get("unreachable"):
+            log(now, "Telegram unreachable (%s); not acting until it answers" % e.__class__.__name__)
+        st.update(unreachable=True, pending_since=None)
+    else:
+        if st.get("unreachable"):
+            log(now, "Telegram reachable again")
+        st["unreachable"] = False
+        if pending == 0:
+            st["pending_since"] = None
+        elif st.get("pending_since") is None:
+            st["pending_since"] = now
+        elif now - st["pending_since"] >= STUCK and now - st.get("last_restart", -COOLDOWN) >= COOLDOWN:
+            stalled = "%d update(s) undelivered for %ds" % (pending, now - st["pending_since"])
+            if RESTART:
+                log(now, stalled + "; restarting the bot")
+                subprocess.run(RESTART, shell=True)
+            else:
+                log(now, stalled + "; set VAULT_WATCHDOG_RESTART to let the watchdog restart the bot")
+            st.update(last_restart=now, pending_since=None)
+
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, STATE)
+
+
+if __name__ == "__main__":
+    main()
