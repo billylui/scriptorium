@@ -56,7 +56,7 @@ case "$event" in
   # elicitation) arrive while it keeps working. No type at all: an older version, so stop.
   Notification)
     case "$(field notification_type)" in
-      ""|permission_prompt|idle_prompt|worker_permission_prompt|elicitation_dialog) rm -f "$BUSY" 2>/dev/null ;;
+      ""|permission_prompt|idle_prompt|worker_permission_prompt|elicitation_dialog|elicitation_url_dialog) rm -f "$BUSY" 2>/dev/null ;;
     esac
     exit 0 ;;
   UserPromptSubmit|PreToolUse) ;;
@@ -75,12 +75,16 @@ touch "$BUSY" 2>/dev/null || exit 0
 # the kernel releases it however the loop dies, so a crash leaves nothing stale and two loops can
 # never run at once; a starter that cannot take the lock just exits. setsid gives the loop its own
 # session, so nothing that kills the hook's process group takes it down.
-nohup /usr/bin/perl -MFcntl=:flock -MPOSIX=setsid,dup2 -e '
+nohup /usr/bin/perl -MFcntl=:flock,F_SETFD -MPOSIX=setsid,dup2 -e '
   setsid();
   open(my $l, ">>", $ARGV[0]) or exit 0;
   flock($l, LOCK_EX | LOCK_NB) or exit 0;
-  dup2(fileno($l), 9) or exit 0;  # the loop keeps the lock on fd 9 (dup2 clears close-on-exec)
-  close($l);
+  if (fileno($l) != 9) {  # already fd 9 when fds 3-8 were inherited open: keep it as it is
+    dup2(fileno($l), 9) or exit 0;  # the loop keeps the lock on fd 9 (dup2 clears close-on-exec)
+    close($l);
+  } else {
+    fcntl($l, F_SETFD, 0);  # clear close-on-exec so the lock survives exec
+  }
   exec("/bin/bash", $ARGV[1], "--loop", $ARGV[2]) or exit 0;
 ' "$LOCK" "$0" "$BUSY" </dev/null >/dev/null 2>&1 &
 exit 0
