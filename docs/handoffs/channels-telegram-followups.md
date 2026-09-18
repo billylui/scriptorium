@@ -2,11 +2,11 @@
 
 **Status:** OPEN · **Opened:** 2026-09-18 · **Owner:** unassigned
 
-The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-remind`, `vault-bot-watchdog`) and the `CHANNELS.md` sections that explain them. Three independent items; each can ship as its own PR.
+The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-remind`, `vault-bot-watchdog`) and the `CHANNELS.md` sections that explain them. Four independent items; each can ship as its own PR.
 
 ## What already shipped (LIVE — do not redo)
 
-- **PR #4 (version 0.6.0).** The three scripts plus the `CHANNELS.md` sections on the chat going quiet, slow replies that are delivery stalls, and reminders lost at restart. Two review rounds found defects, none critical, all fixed on the PR branch before merge: reminders claimed in the file before sending, one chat per reminder through the bot that set it, no retry on permanent refusals, watchdog cooldown saved before restarting with a timeout and exit-status check, token kept out of `ps`, stamp validated as digits, only one `send-due` at a time so a reminder is never sent twice by overlapping runs.
+- **PR #4, merged as `8540657`, version 0.6.0.** The three scripts plus the `CHANNELS.md` sections on the chat going quiet, slow replies that are delivery stalls, and reminders lost at restart. Two review rounds found defects, none critical, all fixed on the PR branch before merge: reminders claimed in the file before sending, one chat per reminder through the bot that set it, no retry on permanent refusals, watchdog cooldown saved before restarting with a timeout and exit-status check, token kept out of `ps`, stamp validated as digits, only one `send-due` at a time so a reminder is never sent twice by overlapping runs.
 - Verified on a real always-on install: a reminder requested from Telegram was set with `vault-remind add --in 2m` and sent by the scheduled job at that minute; the typing hook's stamp was written during the turn; the watchdog runs every minute and reads `pending_update_count` from the live bot.
 
 ## 1. The scripts' tests are not in the repository
@@ -34,6 +34,18 @@ The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-r
 **Problem:** its stall detection rests on Telegram's `getWebhookInfo` reporting `pending_update_count` for a bot that long-polls (the field is present and 0 on a healthy polling bot). It has been tested against a fake server only.
 
 **Fix:** the next time a stall happens on a watched install, confirm from `vault-bot.log` that the watchdog logged `update(s) undelivered … restarting the bot` and that the held messages arrived after the restart. Record the result here, then close the item.
+
+## 4. Minor findings left open by the final review of PR #4
+
+Both review seats confirmed every Critical and Important fix at `165b433` and found none open. These Minor items were deferred rather than start another review round inside the PR. The first two were introduced by that last commit.
+
+- **`--in` can fire up to a minute after the time it printed.** `vault-remind` stores `now_ts()` with seconds (`at_ts`), but prints the time truncated to the minute; a job that runs earlier in the minute than the `add` did sends it one run later. Fix: floor `now_ts()` to the minute before adding the offset.
+- **`--chat` refuses allowlisted group chats.** `allowlist()` reads only `allowFrom`; the plugin also accepts messages from the groups in `access.json`'s `groups`, and the recommended `CLAUDE.md` rule now always passes `--chat`, so a reminder asked for in a group fails with "not in the Telegram allowlist". Fix: accept group ids as well.
+- **`--at` around clock changes.** In the repeated fall-back hour, an `--at` time is resolved to its first occurrence, so one set during the second occurrence fires at once with a false "late" note; in the spring-forward gap, `--at 02:30` fires at 03:30. Only in zones with daylight saving.
+- **Hand-edited `reminders.json` with bad values still ends in a traceback** (`"at": "tomorrow"`, `"daily": [8]`, `"created": "yesterday"`, `"until": 5`, `"at_ts": "soon"`), and every reminder pauses until it is fixed. The structural check does not validate values.
+- **`vault-remind`'s header text is stale:** it does not mention the run lock or that 401/404 and a missing token are retried.
+- **Two tests do not prove what they are named for:** the unwritable-state test stops at the run-lock open instead of the failed claim save (create `.send-lock` before making the directory read-only), and the overlapping-failed-runs test does not force the interleaving that lost reminders (run B must fail and release before run A).
+- **Older, not introduced by PR #4:** `vault-bot-watchdog` crashes writing the log line when a failing restart command prints non-UTF-8 output (the cooldown is already saved); `vault-bot-typing` is silenced for good by a stamp of digits too large for a 64-bit integer (only a corrupted stamp).
 
 ## Re-verify ground truth before acting
 
