@@ -19,7 +19,7 @@ file that cannot be written stops sends instead of repeating them. A network err
 limit releases the claim and the next run retries; any other refusal (blocked bot, bad chat)
 is logged and the reminder dropped. A late reminder says when it was due.
 """
-import argparse, fcntl, json, os, re, sys, uuid
+import argparse, fcntl, json, os, re, sys, time, uuid
 from urllib.error import HTTPError
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -39,9 +39,15 @@ class Permanent(Exception):
     """Telegram refused the message for a reason a retry will not fix."""
 
 
+def now_ts():
+    fixed = os.environ.get("VAULT_REMIND_NOW")  # tests only: "YYYY-MM-DD HH:MM" or "@<epoch>"
+    if not fixed:
+        return time.time()
+    return float(fixed[1:]) if fixed.startswith("@") else datetime.strptime(fixed, FMT).timestamp()
+
+
 def now():
-    fixed = os.environ.get("VAULT_REMIND_NOW")  # tests only
-    return datetime.strptime(fixed, FMT) if fixed else datetime.now().replace(second=0, microsecond=0)
+    return datetime.fromtimestamp(now_ts()).replace(second=0, microsecond=0)
 
 
 def fail(msg):
@@ -57,6 +63,10 @@ def load():
             items = json.load(f)
         if not isinstance(items, list):
             raise ValueError("not a list")
+        for r in items:
+            if not (isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ("id", "text", "created"))
+                    and (isinstance(r.get("at"), str) or isinstance(r.get("daily"), list))):
+                raise ValueError("entry is not a reminder: %s" % json.dumps(r)[:80])
         return items
     except (OSError, ValueError) as e:
         fail("cannot read %s (%s). Reminders are paused until it is fixed or moved aside." % (DB, e))
@@ -93,8 +103,11 @@ def next_due(r):
     """The latest occurrence that is due by now and not yet sent, or None."""
     t = now()
     if "at" in r:
-        due = datetime.strptime(r["at"], FMT)
-        return due if due <= t else None
+        if r.get("last"):  # claimed or sent: a one-shot goes out at most once
+            return None
+        # compare exact instants, so an hour that repeats when clocks go back is not confused
+        due_ts = r.get("at_ts") or datetime.strptime(r["at"], FMT).timestamp()
+        return datetime.fromtimestamp(due_ts) if due_ts <= now_ts() else None
     after = datetime.strptime(r.get("last") or r["created"], FMT)
     until = datetime.strptime(r["until"], "%Y-%m-%d").date() if r.get("until") else None
     day = t.date()
@@ -136,13 +149,16 @@ def send(tg, chat, text):
             if not json.load(resp).get("ok"):
                 raise Permanent("telegram answered ok=false")
     except HTTPError as e:
-        if 400 <= e.code < 500 and e.code != 429:
+        # the chat refused it (blocked bot, bad chat id, text rejected); 401/404 mean a bad token,
+        # which is this machine's setup rather than the message, so those are retried like 429
+        if 400 <= e.code < 500 and e.code not in (401, 404, 429):
             raise Permanent("HTTP %d" % e.code)
         raise
 
 
 def message(r, due):
-    note = "\n(late: this was due %s)" % due.strftime(FMT) if now() - due > LATE else ""
+    late = now_ts() - due.timestamp() > LATE.total_seconds()
+    note = "\n(late: this was due %s)" % due.strftime(FMT) if late else ""
     text = "\u23f0 " + r["text"]
     if len(text) + len(note) > TG_LIMIT:
         text = text[:TG_LIMIT - len(note) - 1] + "\u2026"
@@ -171,14 +187,17 @@ def cmd_add(a):
             fail("--in takes minutes or hours, like 90m or 13h")
         n = int(m.group(1))
         # real elapsed time, so a clock change in between does not move it
-        a.at = datetime.fromtimestamp(t.timestamp() + n * (3600 if m.group(2) == "h" else 60)).strftime(FMT)
+        r["at_ts"] = now_ts() + n * (3600 if m.group(2) == "h" else 60)
+        a.at = datetime.fromtimestamp(r["at_ts"]).strftime(FMT)
     if a.at is not None:
         try:
             due = datetime.strptime(a.at, FMT)
         except ValueError:
             fail('--at takes local time as "YYYY-MM-DD HH:MM"')
-        if due <= t:
-            fail("--at %s is not in the future (now %s)" % (a.at, t.strftime(FMT)))
+        if "at_ts" not in r:
+            if due <= t:
+                fail("--at %s is not in the future (now %s)" % (a.at, t.strftime(FMT)))
+            r["at_ts"] = due.timestamp()
         r["at"] = due.strftime(FMT)
         when = r["at"]
     else:
@@ -232,6 +251,15 @@ def cmd_cancel(a):
 def cmd_send_due(a):
     if not os.path.exists(DB):
         return
+    # one run at a time: a manual run beside the scheduled one must not send the same reminder
+    try:
+        run_lock = open(os.path.join(DIR, ".send-lock"), "w")
+        fcntl.flock(run_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("vault-remind: another send-due is running; skipped", file=sys.stderr)
+        return
+    except OSError as e:
+        fail("cannot open %s (%s)" % (DIR, e))
     stamp = now().strftime(FMT)
     # 1. claim: mark due occurrences sent and save before any network call
     claims = []

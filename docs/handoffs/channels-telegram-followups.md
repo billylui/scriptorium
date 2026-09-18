@@ -6,7 +6,7 @@ The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-r
 
 ## What already shipped (LIVE — do not redo)
 
-- **PR #4 (version 0.6.0).** The three scripts plus the `CHANNELS.md` sections on the chat going quiet, slow replies that are delivery stalls, and reminders lost at restart. A two-seat review of the first version found 20 defects, none critical, all fixed in `c4cfb77`: reminders claimed in the file before sending, one chat per reminder through the bot that set it, no retry on permanent refusals, watchdog cooldown saved before restarting with a timeout and exit-status check, token kept out of `ps`, stamp validated as digits.
+- **PR #4 (version 0.6.0).** The three scripts plus the `CHANNELS.md` sections on the chat going quiet, slow replies that are delivery stalls, and reminders lost at restart. Two review rounds found defects, none critical, all fixed on the PR branch before merge: reminders claimed in the file before sending, one chat per reminder through the bot that set it, no retry on permanent refusals, watchdog cooldown saved before restarting with a timeout and exit-status check, token kept out of `ps`, stamp validated as digits, only one `send-due` at a time so a reminder is never sent twice by overlapping runs.
 - Verified on a real always-on install: a reminder requested from Telegram was set with `vault-remind add --in 2m` and sent by the scheduled job at that minute; the typing hook's stamp was written during the turn; the watchdog runs every minute and reads `pending_update_count` from the live bot.
 
 ## 1. The scripts' tests are not in the repository

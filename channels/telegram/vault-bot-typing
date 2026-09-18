@@ -15,6 +15,7 @@ STAMP="${VAULT_BOT_TYPING_STAMP:-${TMPDIR:-$HOME/.cache}/vault-bot-typing-$BOT.s
 now=$(date +%s)
 last=$(cat "$STAMP" 2>/dev/null)
 [[ $last =~ ^[0-9]+$ ]] || last=0  # the stamp is data: anything else would be evaluated as arithmetic
+[ "$last" -gt "$now" ] && last=0    # a stamp from the future (clock set back) must not silence it
 [ $((now - last)) -lt 4 ] && exit 0
 mkdir -p "$(dirname "$STAMP")" 2>/dev/null
 echo "$now" > "$STAMP" 2>/dev/null

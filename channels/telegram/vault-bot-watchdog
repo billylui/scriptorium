@@ -13,7 +13,7 @@ chat context and any task in progress are lost), then waits COOLDOWN before it m
 restart again. If Telegram itself is unreachable it does nothing: a restart cannot fix the
 network, and it cannot tell a stall from an outage. It logs only changes, not every check.
 """
-import hashlib, json, os, signal, subprocess, time
+import hashlib, json, os, signal, subprocess, tempfile, time
 from datetime import datetime
 from urllib import request
 
@@ -49,18 +49,23 @@ def save(st, now):
 
 
 def restart(now):
-    # its own process group, so a timeout can kill everything it started, not just the shell
-    p = subprocess.Popen(RESTART, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         text=True, start_new_session=True)
-    try:
-        out, _ = p.communicate(timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
-        p.communicate()
-        log(now, "restart command timed out after %gs and was killed" % TIMEOUT)
-        return
-    if p.returncode != 0:
-        log(now, "restart command failed (exit %d): %s" % (p.returncode, out.strip()[-300:]))
+    # Output goes to a file, not a pipe: a process the command leaves behind could hold a pipe
+    # open and make waiting on it hang. Its own process group, so a timeout kills what it started.
+    with tempfile.TemporaryFile(mode="w+") as out:
+        p = subprocess.Popen(RESTART, shell=True, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            p.wait(timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:  # the group is already gone
+                pass
+            p.wait()
+            log(now, "restart command timed out after %gs and was killed" % TIMEOUT)
+            return
+        if p.returncode != 0:
+            out.seek(0)
+            log(now, "restart command failed (exit %d): %s" % (p.returncode, out.read().strip()[-300:]))
 
 
 def main():
