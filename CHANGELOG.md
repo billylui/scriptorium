@@ -4,6 +4,13 @@ Notable changes to this project. Versions follow [SemVer](https://semver.org/); 
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-09-18
+
+### Fixed
+- **`vault-bot-typing` let "typing…" lapse whenever the model thought or wrote between tool calls.** It renewed the indicator only on a tool call, and on real turns that left it visible for 12 to 75 percent of the time. It now runs on `UserPromptSubmit`, `PreToolUse` and `Stop`: a detached loop renews the indicator every four seconds while the bot works and stops at the final `reply` or the end of the turn, or by itself after ten minutes with no refresh. Register all three events in the bot's `--settings`.
+- **`vault-remind --in` could fire up to a minute after the time it printed.** It now counts from the start of the minute.
+- **`vault-remind --chat` refused allowlisted group chats,** so a reminder asked for in a group failed. Groups in `access.json` are now accepted.
+
 ## [0.6.0] — 2026-09-18
 
 Everything here came from the same always-on Telegram install as 0.5.x.

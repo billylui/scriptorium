@@ -1,34 +1,69 @@
 #!/bin/bash
-# PreToolUse hook for an always-on Telegram vault bot. Install it only in the bot session's --settings.
-# Telegram's "typing…" indicator lapses after ~5s and the plugin sends it once per message,
-# so a long task looks dead. This renews it on each tool call, at most every 4s.
-# It must never block or slow a tool: it always exits 0, prints nothing, and sends in the background.
+# Hook for an always-on Telegram vault bot, on UserPromptSubmit, PreToolUse and Stop. Install it only in
+# the bot session's --settings. The plugin sends Telegram's "typing…" once per message and Telegram clears it
+# after ~5s. Renewing it only on tool calls left the chat dark whenever the model thought or wrote between
+# tools (measured on real turns: visible 12-75% of the time). So a turn start or a tool call keeps a
+# detached loop renewing it every few seconds; the final reply or the end of the turn stops it, and a loop
+# nothing has refreshed for IDLE seconds stops itself, in case a Stop is ever missed.
+# It must never block or slow a tool: the hook always exits 0 and prints nothing. macOS (plutil, stat -f).
 STATE="${TELEGRAM_STATE_DIR:-$HOME/.claude/channels/telegram}"
 API="${VAULT_BOT_TG_API:-https://api.telegram.org}"
-# One stamp per bot, in a per-user directory (macOS sets TMPDIR per user; /tmp is shared).
+INTERVAL="${VAULT_BOT_TYPING_INTERVAL:-4}"
+IDLE="${VAULT_BOT_TYPING_IDLE:-600}"
+# Per-user directory (macOS sets TMPDIR per user; /tmp is shared), one set of files per bot.
+RUN="${VAULT_BOT_TYPING_RUN:-${TMPDIR:-$HOME/.cache}}"
 BOT="$(basename "$STATE")-$(printf %s "$STATE" | cksum | cut -d' ' -f1)"
-STAMP="${VAULT_BOT_TYPING_STAMP:-${TMPDIR:-$HOME/.cache}/vault-bot-typing-$BOT.stamp}"
+BUSY="$RUN/vault-bot-typing-$BOT.busy"  # exists while the bot works; its mtime is the last refresh
+PIDF="$RUN/vault-bot-typing-$BOT.pid"   # the running loop, if any
 
-# The final answer goes out through reply; "typing…" after it would look like more is coming.
-[[ $(cat) =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]] && exit 0
+send() {
+  local token chat i=0
+  token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$STATE/.env" 2>/dev/null)
+  [ -n "$token" ] || return
+  # Every allowlisted DM (normally just the owner); a DM's chat id equals the user id.
+  while chat=$(plutil -extract "allowFrom.$i" raw -o - "$STATE/access.json" 2>/dev/null); do
+    # the URL carries the token, so it goes in on stdin rather than where ps can show it
+    printf 'url = "%s/bot%s/sendChatAction"\n' "$API" "$token" |
+      curl -s -m 4 -o /dev/null -K - -d chat_id="$chat" -d action=typing >/dev/null 2>&1 &
+    i=$((i + 1))
+  done
+}
 
-now=$(date +%s)
-last=$(cat "$STAMP" 2>/dev/null)
-[[ $last =~ ^[0-9]+$ ]] || last=0  # the stamp is data: anything else would be evaluated as arithmetic
-[ "$last" -gt "$now" ] && last=0    # a stamp from the future (clock set back) must not silence it
-[ $((now - last)) -lt 4 ] && exit 0
-mkdir -p "$(dirname "$STAMP")" 2>/dev/null
-echo "$now" > "$STAMP" 2>/dev/null
+if [ "$1" = "--loop" ]; then
+  # One loop per bot: claim the pid file atomically, or leave if a live loop already holds it.
+  if ! (set -C; echo $$ > "$PIDF") 2>/dev/null; then
+    pid=$(cat "$PIDF" 2>/dev/null)
+    [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && exit 0
+    rm -f "$PIDF"
+    (set -C; echo $$ > "$PIDF") 2>/dev/null || exit 0
+  fi
+  while [ -e "$BUSY" ]; do
+    last=$(stat -f %m "$BUSY" 2>/dev/null) || break
+    [ $(( $(date +%s) - last )) -ge "$IDLE" ] && { rm -f "$BUSY"; break; }
+    send
+    sleep "$INTERVAL"
+  done
+  [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
+  exit 0
+fi
 
-token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$STATE/.env" 2>/dev/null)
-[ -n "$token" ] || exit 0
+input=$(cat)
+event=""
+[[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"([A-Za-z]+)\" ]] && event=${BASH_REMATCH[1]}
 
-# Every allowlisted DM (normally just the owner); a DM's chat id equals the user id.
-i=0
-while chat=$(plutil -extract "allowFrom.$i" raw -o - "$STATE/access.json" 2>/dev/null); do
-  # the URL carries the token, so it goes in on stdin rather than where ps can show it
-  printf 'url = "%s/bot%s/sendChatAction"\n' "$API" "$token" |
-    curl -s -m 4 -o /dev/null -K - -d chat_id="$chat" -d action=typing >/dev/null 2>&1 &
-  i=$((i + 1))
-done
+# The final answer goes out through reply, and the turn ends with Stop: "typing…" after either would
+# look like more is coming.
+if [ "$event" = Stop ] || [[ $input =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]]; then
+  rm -f "$BUSY" 2>/dev/null
+  exit 0
+fi
+case "$event" in UserPromptSubmit|PreToolUse) ;; *) exit 0 ;; esac
+[ -r "$STATE/.env" ] || exit 0
+
+mkdir -p "$RUN" 2>/dev/null
+touch "$BUSY" 2>/dev/null || exit 0
+pid=$(cat "$PIDF" 2>/dev/null)
+[[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && exit 0
+# Detached, with every stream closed, so Claude Code does not wait for it.
+nohup "$0" --loop "$BUSY" </dev/null >/dev/null 2>&1 &
 exit 0

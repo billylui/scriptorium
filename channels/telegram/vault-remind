@@ -13,11 +13,13 @@ by launchd or cron, with no Claude session involved when they fire.
   vault-remind cancel <id>
   vault-remind send-due                              (run by launchd)
 
-Times are this machine's local time. Each reminder goes to one chat: --chat, or the first in
-the plugin's allowlist. A due reminder is claimed in the file before it is sent, so a state
-file that cannot be written stops sends instead of repeating them. A network error or rate
-limit releases the claim and the next run retries; any other refusal (blocked bot, bad chat)
-is logged and the reminder dropped. A late reminder says when it was due.
+Times are this machine's local time. Each reminder goes to one chat, through the bot that set it:
+--chat (a person or group on that bot's allowlist), or the first person on it. Only one send-due
+runs at a time, and a due reminder is claimed in the file before it is sent, so it goes out once;
+a run killed mid-send can lose that reminder but never repeats it. A network error, rate limit,
+unrecognised token or missing token/allowlist releases the claim and the next run retries; any
+other refusal (blocked bot, bad chat) is logged and the reminder dropped. A late reminder says when
+it was due.
 """
 import argparse, fcntl, json, os, re, sys, time, uuid
 from urllib.error import HTTPError
@@ -130,7 +132,9 @@ def finished(r):
 def allowlist(tg):
     try:
         with open(os.path.join(tg, "access.json")) as f:
-            return [str(c) for c in json.load(f).get("allowFrom", [])]
+            access = json.load(f)
+        # people first, so the default chat is the first person; then the groups the bot answers in
+        return [str(c) for c in access.get("allowFrom", [])] + [str(g) for g in access.get("groups", {})]
     except (OSError, ValueError):
         return []
 
@@ -187,7 +191,8 @@ def cmd_add(a):
             fail("--in takes minutes or hours, like 90m or 13h")
         n = int(m.group(1))
         # real elapsed time, so a clock change in between does not move it
-        r["at_ts"] = now_ts() + n * (3600 if m.group(2) == "h" else 60)
+        # from the start of this minute, so it fires in the minute it prints
+        r["at_ts"] = now_ts() // 60 * 60 + n * (3600 if m.group(2) == "h" else 60)
         a.at = datetime.fromtimestamp(r["at_ts"]).strftime(FMT)
     if a.at is not None:
         try:

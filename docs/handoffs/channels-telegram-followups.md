@@ -37,13 +37,10 @@ The three optional scripts in `channels/telegram/` (`vault-bot-typing`, `vault-r
 
 ## 4. Minor findings left open by the final review of PR #4
 
-Both review seats confirmed every Critical and Important fix at `165b433` and found none open. These Minor items were deferred rather than start another review round inside the PR. The first two were introduced by that last commit.
+Both review seats confirmed every Critical and Important fix at `165b433` and found none open. These Minor items were deferred rather than start another review round inside the PR. Three more (`--in` up to a minute late, `--chat` refusing group chats, a stale header in `vault-remind`) were fixed in 0.6.1.
 
-- **`--in` can fire up to a minute after the time it printed.** `vault-remind` stores `now_ts()` with seconds (`at_ts`), but prints the time truncated to the minute; a job that runs earlier in the minute than the `add` did sends it one run later. Fix: floor `now_ts()` to the minute before adding the offset.
-- **`--chat` refuses allowlisted group chats.** `allowlist()` reads only `allowFrom`; the plugin also accepts messages from the groups in `access.json`'s `groups`, and the recommended `CLAUDE.md` rule now always passes `--chat`, so a reminder asked for in a group fails with "not in the Telegram allowlist". Fix: accept group ids as well.
 - **`--at` around clock changes.** In the repeated fall-back hour, an `--at` time is resolved to its first occurrence, so one set during the second occurrence fires at once with a false "late" note; in the spring-forward gap, `--at 02:30` fires at 03:30. Only in zones with daylight saving.
 - **Hand-edited `reminders.json` with bad values still ends in a traceback** (`"at": "tomorrow"`, `"daily": [8]`, `"created": "yesterday"`, `"until": 5`, `"at_ts": "soon"`), and every reminder pauses until it is fixed. The structural check does not validate values.
-- **`vault-remind`'s header text is stale:** it does not mention the run lock or that 401/404 and a missing token are retried.
 - **Two tests do not prove what they are named for:** the unwritable-state test stops at the run-lock open instead of the failed claim save (create `.send-lock` before making the directory read-only), and the overlapping-failed-runs test does not force the interleaving that lost reminders (run B must fail and release before run A).
 - **Older, not introduced by PR #4:** `vault-bot-watchdog` crashes writing the log line when a failing restart command prints non-UTF-8 output (the cooldown is already saved); `vault-bot-typing` is silenced for good by a stamp of digits too large for a 64-bit integer (only a corrupted stamp).
 
