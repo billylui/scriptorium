@@ -1,0 +1,307 @@
+#!/usr/bin/python3
+"""Durable reminders for the Telegram vault bot.
+
+Claude's own scheduler lives inside one session and is lost on every restart, so reminders
+are kept in a file and sent straight to Telegram by `vault-remind send-due`, run every minute
+by launchd or cron, with no Claude session involved when they fire.
+
+  vault-remind add --at "2026-09-18 20:51" --text "Take your evening pill"
+  vault-remind add --in 13h --text "..."            (also 90m)
+  vault-remind add --daily 08:00,20:00 [--until 2026-10-01] --text "..."
+  (any add: --chat <id> to send to another allowlisted chat than the first)
+  vault-remind list [--json]
+  vault-remind cancel <id>
+  vault-remind send-due                              (run by launchd)
+
+Times are this machine's local time. Each reminder goes to one chat: --chat, or the first in
+the plugin's allowlist. A due reminder is claimed in the file before it is sent, so a state
+file that cannot be written stops sends instead of repeating them. A network error or rate
+limit releases the claim and the next run retries; any other refusal (blocked bot, bad chat)
+is logged and the reminder dropped. A late reminder says when it was due.
+"""
+import argparse, fcntl, json, os, re, sys, time, uuid
+from urllib.error import HTTPError
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+from urllib import parse, request
+
+HOME = os.path.expanduser("~")
+DIR = os.environ.get("VAULT_REMIND_DIR", os.path.join(HOME, ".local/share/vault-remind"))
+DB = os.path.join(DIR, "reminders.json")
+TG = os.environ.get("TELEGRAM_STATE_DIR", os.path.join(HOME, ".claude/channels/telegram"))
+API = os.environ.get("VAULT_BOT_TG_API", "https://api.telegram.org")
+FMT = "%Y-%m-%d %H:%M"
+LATE = timedelta(minutes=10)
+TG_LIMIT = 4096
+
+
+class Permanent(Exception):
+    """Telegram refused the message for a reason a retry will not fix."""
+
+
+def now_ts():
+    fixed = os.environ.get("VAULT_REMIND_NOW")  # tests only: "YYYY-MM-DD HH:MM" or "@<epoch>"
+    if not fixed:
+        return time.time()
+    return float(fixed[1:]) if fixed.startswith("@") else datetime.strptime(fixed, FMT).timestamp()
+
+
+def now():
+    return datetime.fromtimestamp(now_ts()).replace(second=0, microsecond=0)
+
+
+def fail(msg):
+    print("vault-remind: " + msg, file=sys.stderr)
+    sys.exit(2)
+
+
+def load():
+    if not os.path.exists(DB):
+        return []
+    try:
+        with open(DB) as f:
+            items = json.load(f)
+        if not isinstance(items, list):
+            raise ValueError("not a list")
+        for r in items:
+            if not (isinstance(r, dict) and all(isinstance(r.get(k), str) for k in ("id", "text", "created"))
+                    and (isinstance(r.get("at"), str) or isinstance(r.get("daily"), list))):
+                raise ValueError("entry is not a reminder: %s" % json.dumps(r)[:80])
+        return items
+    except (OSError, ValueError) as e:
+        fail("cannot read %s (%s). Reminders are paused until it is fixed or moved aside." % (DB, e))
+
+
+def save(items):
+    tmp = DB + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(items, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, DB)
+    except OSError as e:
+        fail("cannot write %s (%s)" % (DB, e))
+
+
+@contextmanager
+def store():
+    """Locked read-modify-write of the reminder file; the bot and launchd can run at once."""
+    try:
+        os.makedirs(DIR, exist_ok=True)
+        lock = open(os.path.join(DIR, ".lock"), "w")
+    except OSError as e:
+        fail("cannot open %s (%s)" % (DIR, e))
+    with lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        box = [load()]
+        yield box
+        save(box[0])
+
+
+def next_due(r):
+    """The latest occurrence that is due by now and not yet sent, or None."""
+    t = now()
+    if "at" in r:
+        if r.get("last"):  # claimed or sent: a one-shot goes out at most once
+            return None
+        # compare exact instants, so an hour that repeats when clocks go back is not confused
+        due_ts = r.get("at_ts") or datetime.strptime(r["at"], FMT).timestamp()
+        return datetime.fromtimestamp(due_ts) if due_ts <= now_ts() else None
+    after = datetime.strptime(r.get("last") or r["created"], FMT)
+    until = datetime.strptime(r["until"], "%Y-%m-%d").date() if r.get("until") else None
+    day = t.date()
+    while day >= after.date():  # newest first: a long outage sends one catch-up, not a backlog
+        for hm in sorted(r["daily"], reverse=True):
+            occ = datetime.strptime(day.isoformat() + " " + hm, FMT)
+            if after < occ <= t and (until is None or occ.date() <= until):
+                return occ
+        day -= timedelta(days=1)
+    return None
+
+
+def finished(r):
+    if "at" in r:
+        return r.get("last") is not None
+    # an unsent final occurrence (say, during an outage) keeps the reminder until it goes out
+    return bool(r.get("until")) and now().date() > datetime.strptime(r["until"], "%Y-%m-%d").date() and next_due(r) is None
+
+
+def allowlist(tg):
+    try:
+        with open(os.path.join(tg, "access.json")) as f:
+            return [str(c) for c in json.load(f).get("allowFrom", [])]
+    except (OSError, ValueError):
+        return []
+
+
+def send(tg, chat, text):
+    token = ""
+    with open(os.path.join(tg, ".env")) as f:
+        for line in f:
+            if line.startswith("TELEGRAM_BOT_TOKEN="):
+                token = line.split("=", 1)[1].strip()
+    if not token or not chat:
+        raise RuntimeError("no bot token or chat")
+    data = parse.urlencode({"chat_id": chat, "text": text}).encode()
+    try:
+        with request.urlopen(API + "/bot" + token + "/sendMessage", data, timeout=15) as resp:
+            if not json.load(resp).get("ok"):
+                raise Permanent("telegram answered ok=false")
+    except HTTPError as e:
+        # the chat refused it (blocked bot, bad chat id, text rejected); 401/404 mean a bad token,
+        # which is this machine's setup rather than the message, so those are retried like 429
+        if 400 <= e.code < 500 and e.code not in (401, 404, 429):
+            raise Permanent("HTTP %d" % e.code)
+        raise
+
+
+def message(r, due):
+    late = now_ts() - due.timestamp() > LATE.total_seconds()
+    note = "\n(late: this was due %s)" % due.strftime(FMT) if late else ""
+    text = "\u23f0 " + r["text"]
+    if len(text) + len(note) > TG_LIMIT:
+        text = text[:TG_LIMIT - len(note) - 1] + "\u2026"
+    return text + note
+
+
+def cmd_add(a):
+    t = now()
+    if not a.text or not a.text.strip():
+        fail("--text is required")
+    if sum(x is not None for x in (a.at, a.in_, a.daily)) != 1:
+        fail("give exactly one of --at, --in, --daily")
+    if a.until and a.daily is None:
+        fail("--until only applies to --daily")
+    chats = allowlist(TG)
+    if a.chat is not None and a.chat not in chats:
+        fail("chat %s is not in the Telegram allowlist" % a.chat)
+    if not chats:
+        fail("no chat in the Telegram allowlist to send to")
+    # remember the bot as well as the chat: the job that sends it may run with another bot's environment
+    r = {"id": uuid.uuid4().hex[:6], "text": a.text.strip(), "chat": a.chat or chats[0], "tg": os.path.abspath(TG),
+         "created": t.strftime(FMT), "last": None}
+    if a.in_ is not None:
+        m = re.fullmatch(r"(\d+)([mh])", a.in_)
+        if not m or int(m.group(1)) == 0:
+            fail("--in takes minutes or hours, like 90m or 13h")
+        n = int(m.group(1))
+        # real elapsed time, so a clock change in between does not move it
+        r["at_ts"] = now_ts() + n * (3600 if m.group(2) == "h" else 60)
+        a.at = datetime.fromtimestamp(r["at_ts"]).strftime(FMT)
+    if a.at is not None:
+        try:
+            due = datetime.strptime(a.at, FMT)
+        except ValueError:
+            fail('--at takes local time as "YYYY-MM-DD HH:MM"')
+        if "at_ts" not in r:
+            if due <= t:
+                fail("--at %s is not in the future (now %s)" % (a.at, t.strftime(FMT)))
+            r["at_ts"] = due.timestamp()
+        r["at"] = due.strftime(FMT)
+        when = r["at"]
+    else:
+        times = [x.strip() for x in a.daily.split(",") if x.strip()]
+        for hm in times:
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", hm):
+                fail("--daily takes HH:MM times, comma-separated, like 08:00,20:00")
+        if not times:
+            fail("--daily needs at least one time")
+        r["daily"] = sorted(set(times))
+        if a.until:
+            try:
+                datetime.strptime(a.until, "%Y-%m-%d")
+            except ValueError:
+                fail("--until takes a date as YYYY-MM-DD")
+            until = datetime.strptime(a.until, "%Y-%m-%d").date()
+            day, left = t.date(), False
+            while day <= until and not left:
+                left = any(datetime.strptime(day.isoformat() + " " + hm, FMT) > t for hm in r["daily"])
+                day += timedelta(days=1)
+            if not left:
+                fail("--until %s leaves no reminder to send" % a.until)
+            r["until"] = a.until
+        when = "daily at " + ", ".join(r["daily"]) + (" until " + a.until if a.until else "")
+    with store() as box:
+        box[0].append(r)
+    print("reminder %s set: %s: %s" % (r["id"], when, r["text"]))
+
+
+def cmd_list(a):
+    items = load()
+    if a.json:
+        print(json.dumps(items, ensure_ascii=False))
+        return
+    if not items:
+        print("no reminders")
+    for r in items:
+        when = r.get("at") or "daily " + ",".join(r["daily"]) + (" until " + r["until"] if r.get("until") else "")
+        print("%s  %s  %s" % (r["id"], when, r["text"]))
+
+
+def cmd_cancel(a):
+    with store() as box:
+        keep = [r for r in box[0] if r["id"] != a.id]
+        if len(keep) == len(box[0]):
+            fail("no reminder with id " + a.id)
+        box[0] = keep
+    print("reminder %s cancelled" % a.id)
+
+
+def cmd_send_due(a):
+    if not os.path.exists(DB):
+        return
+    # one run at a time: a manual run beside the scheduled one must not send the same reminder
+    try:
+        run_lock = open(os.path.join(DIR, ".send-lock"), "w")
+        fcntl.flock(run_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("vault-remind: another send-due is running; skipped", file=sys.stderr)
+        return
+    except OSError as e:
+        fail("cannot open %s (%s)" % (DIR, e))
+    stamp = now().strftime(FMT)
+    # 1. claim: mark due occurrences sent and save before any network call
+    claims = []
+    with store() as box:
+        for r in box[0]:
+            due = next_due(r)
+            if due is not None:
+                claims.append((dict(r), due))
+                r["last"] = due.strftime(FMT)
+    # 2. send without holding the lock, so the bot's `add` never waits on the network
+    retry = {}
+    for r, due in claims:
+        tg = r.get("tg") or TG  # entries made before the bot was recorded use this job's bot
+        chats = allowlist(tg)
+        try:
+            send(tg, r.get("chat") or (chats[0] if chats else None), message(r, due))
+            print("%s sent %s" % (stamp, r["id"]))
+        except Permanent as e:
+            print("%s gave up on %s: Telegram refused it (%s)" % (stamp, r["id"], e), file=sys.stderr)
+        except Exception as e:
+            print("%s send failed for %s, will retry: %s" % (stamp, r["id"], e.__class__.__name__), file=sys.stderr)
+            retry[r["id"]] = (r.get("last"), due.strftime(FMT))
+    # 3. release claims that failed transiently, and drop finished reminders
+    with store() as box:
+        for r in box[0]:
+            if r["id"] in retry and r.get("last") == retry[r["id"]][1]:
+                r["last"] = retry[r["id"]][0]
+        box[0] = [r for r in box[0] if not finished(r)]
+
+
+def main():
+    p = argparse.ArgumentParser(prog="vault-remind", description="Durable Telegram reminders for the vault bot.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("add")
+    s.add_argument("--at"); s.add_argument("--in", dest="in_"); s.add_argument("--daily")
+    s.add_argument("--until"); s.add_argument("--text"); s.add_argument("--chat")
+    s = sub.add_parser("list"); s.add_argument("--json", action="store_true")
+    s = sub.add_parser("cancel"); s.add_argument("id")
+    sub.add_parser("send-due")
+    a = p.parse_args()
+    {"add": cmd_add, "list": cmd_list, "cancel": cmd_cancel, "send-due": cmd_send_due}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,34 @@
+#!/bin/bash
+# PreToolUse hook for an always-on Telegram vault bot. Install it only in the bot session's --settings.
+# Telegram's "typing…" indicator lapses after ~5s and the plugin sends it once per message,
+# so a long task looks dead. This renews it on each tool call, at most every 4s.
+# It must never block or slow a tool: it always exits 0, prints nothing, and sends in the background.
+STATE="${TELEGRAM_STATE_DIR:-$HOME/.claude/channels/telegram}"
+API="${VAULT_BOT_TG_API:-https://api.telegram.org}"
+# One stamp per bot, in a per-user directory (macOS sets TMPDIR per user; /tmp is shared).
+BOT="$(basename "$STATE")-$(printf %s "$STATE" | cksum | cut -d' ' -f1)"
+STAMP="${VAULT_BOT_TYPING_STAMP:-${TMPDIR:-$HOME/.cache}/vault-bot-typing-$BOT.stamp}"
+
+# The final answer goes out through reply; "typing…" after it would look like more is coming.
+[[ $(cat) =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"[^\"]*telegram[^\"]*__reply\" ]] && exit 0
+
+now=$(date +%s)
+last=$(cat "$STAMP" 2>/dev/null)
+[[ $last =~ ^[0-9]+$ ]] || last=0  # the stamp is data: anything else would be evaluated as arithmetic
+[ "$last" -gt "$now" ] && last=0    # a stamp from the future (clock set back) must not silence it
+[ $((now - last)) -lt 4 ] && exit 0
+mkdir -p "$(dirname "$STAMP")" 2>/dev/null
+echo "$now" > "$STAMP" 2>/dev/null
+
+token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$STATE/.env" 2>/dev/null)
+[ -n "$token" ] || exit 0
+
+# Every allowlisted DM (normally just the owner); a DM's chat id equals the user id.
+i=0
+while chat=$(plutil -extract "allowFrom.$i" raw -o - "$STATE/access.json" 2>/dev/null); do
+  # the URL carries the token, so it goes in on stdin rather than where ps can show it
+  printf 'url = "%s/bot%s/sendChatAction"\n' "$API" "$token" |
+    curl -s -m 4 -o /dev/null -K - -d chat_id="$chat" -d action=typing >/dev/null 2>&1 &
+  i=$((i + 1))
+done
+exit 0
